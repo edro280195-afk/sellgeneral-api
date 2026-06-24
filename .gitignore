@@ -483,3 +483,9 @@ $RECYCLE.BIN/
 # Llaves secretas de Google y Firebase (NUNCA SUBIR)
 firebase-service-account.json
 cami-voz-v2.json
+
+# Config local con el connection string real de la base de datos (NUNCA SUBIR)
+appsettings.Development.json
+
+# Directorio local de Claude Code (worktrees de agentes, settings locales)
+.claude/
