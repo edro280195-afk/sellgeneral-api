@@ -13,9 +13,12 @@ public enum LiveSessionStatus
     Failed = 6,
 }
 
-public class LiveSession
+public class LiveSession : ITenantOwned
 {
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de esta sesión de live.</summary>
+    public int BusinessId { get; set; }
 
     [Required, MaxLength(500)]
     public string FacebookUrl { get; set; } = "";

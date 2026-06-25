@@ -4,10 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EntregasApi.Models;
 
 [Table("PushSubscriptions")]
-public class PushSubscriptionModel
+public class PushSubscriptionModel : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de esta suscripción.</summary>
+    public int BusinessId { get; set; }
 
     [Required]
     [MaxLength(2048)]

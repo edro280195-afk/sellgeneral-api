@@ -86,6 +86,7 @@ public class ClientsController : ControllerBase
     /// NO modifica nada.
     /// </summary>
     [HttpPost("facebook-import/preview")]
+    [RequiresFeature(Feature.FacebookImport)]
     public async Task<ActionResult<FacebookImportPreviewResponse>> FacebookImportPreview([FromBody] FacebookImportPreviewRequest req)
     {
         var rows = req.Rows ?? new List<FacebookImportRow>();
@@ -159,6 +160,7 @@ public class ClientsController : ControllerBase
     /// Solo vincula clientas existentes; nunca crea nuevas.
     /// </summary>
     [HttpPost("facebook-import/apply")]
+    [RequiresFeature(Feature.FacebookImport)]
     public async Task<ActionResult<FacebookImportApplyResponse>> FacebookImportApply([FromBody] FacebookImportApplyRequest req)
     {
         var rows = req.Rows ?? new List<FacebookImportApplyRow>();

@@ -22,15 +22,18 @@ public class DriverController : ControllerBase
     private readonly IPushNotificationService _push;
     private readonly ICamiService _cami;
     private readonly ICloudinaryService _cloudinary;
+    private readonly ICurrentTenant _tenant;
 
     public DriverController(AppDbContext db, IHubContext<DeliveryHub> hub,
-        IPushNotificationService push, ICamiService cami, ICloudinaryService cloudinary)
+        IPushNotificationService push, ICamiService cami, ICloudinaryService cloudinary,
+        ICurrentTenant tenant)
     {
         _db = db;
         _hub = hub;
         _push = push;
         _cami = cami;
         _cloudinary = cloudinary;
+        _tenant = tenant;
     }
 
     /// <summary>GET /api/driver/{token} - Obtener ruta del repartidor</summary>
@@ -182,7 +185,7 @@ public class DriverController : ControllerBase
             // Notificar clienta — solo aplica si es una Order regular (las tandas no tienen access token público).
             if (firstDelivery.Order != null)
             {
-                await _hub.Clients.Group($"Order_{firstDelivery.Order.AccessToken}")
+                await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, firstDelivery.Order.AccessToken))
                     .SendAsync("DeliveryUpdate", new { Status = "InTransit", Message = "¡El repartidor va en camino hacia ti!" });
 
                 if (firstDelivery.Order.ClientId > 0)
@@ -193,7 +196,7 @@ public class DriverController : ControllerBase
         await _db.SaveChangesAsync();
 
         // Notificar admin
-        await _hub.Clients.Group("Admins").SendAsync("RouteStarted", new { RouteId = route.Id });
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("RouteStarted", new { RouteId = route.Id });
 
         return Ok(new { message = "Ruta iniciada.", firstDeliveryId = firstDelivery?.Id });
     }
@@ -222,13 +225,13 @@ public class DriverController : ControllerBase
         await _db.SaveChangesAsync();
 
         // Admin siempre se entera
-        await _hub.Clients.Group($"Route_{driverToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken))
              .SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "InTransit" });
 
         // Notificaciones a clienta y greeting de CAMI sólo aplican a Orders regulares.
         if (delivery.Order != null)
         {
-            await _hub.Clients.Group($"Order_{delivery.Order.AccessToken}")
+            await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, delivery.Order.AccessToken))
                 .SendAsync("DeliveryUpdate", new { Status = "InTransit", Message = "¡El repartidor va en camino hacia ti!" });
 
             if (delivery.Order.ClientId > 0)
@@ -247,7 +250,7 @@ public class DriverController : ControllerBase
                     if (orderForCami != null)
                     {
                         var greeting = await _cami.GetProactiveGreetingAsync(orderForCami);
-                        await _hub.Clients.Group($"Order_{camiAccessToken}")
+                        await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, camiAccessToken))
                             .SendAsync("CamiGreeting", new { greeting.Message, greeting.AudioBase64 });
                     }
                 }
@@ -293,15 +296,15 @@ public class DriverController : ControllerBase
                 // Reset a todos los demás En Tránsito a Pendiente
                 foreach (var d in deliveries.Where(d => d.Status == DeliveryStatus.InTransit)) d.Status = DeliveryStatus.Pending;
                 firstPending.Status = DeliveryStatus.InTransit;
-                
+
                 await _db.SaveChangesAsync(); // Guardar el cambio a InTransit
-                
+
                 // Disparar las alertas para ese nuevo usuario
-                if (firstPending.Order != null) 
+                if (firstPending.Order != null)
                 {
-                    await _hub.Clients.Group($"Order_{firstPending.Order.AccessToken}")
+                    await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, firstPending.Order.AccessToken))
                         .SendAsync("DeliveryUpdate", new { Status = "InTransit", Message = "¡El repartidor va en camino hacia ti!" });
-                    
+
                     if (firstPending.Order.ClientId > 0)
                         await _push.NotifyClientDriverEnRouteAsync(firstPending.Order.ClientId);
                 }
@@ -311,7 +314,7 @@ public class DriverController : ControllerBase
         await _db.SaveChangesAsync();
 
         // Notificamos al Dashboard Admin que el orden en vivo cambió desde el móvil del chofer
-        await _hub.Clients.Group("Admins").SendAsync("RouteUpdated", route.Id);
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("RouteUpdated", route.Id);
 
         return Ok(new { message = "Ruta reordenada exitosamente por el repartidor." });
     }
@@ -408,10 +411,10 @@ public class DriverController : ControllerBase
         await _db.SaveChangesAsync();
 
         // Notificar al Admin y a las Clientas de esta ruta en tiempo real (solo a los de esta ruta)
-        await _hub.Clients.Group("Admins")
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId))
              .SendAsync("ReceiveLocation", driverToken, req.Latitude, req.Longitude);
-        
-        await _hub.Clients.Group($"Tracking_{driverToken}")
+
+        await _hub.Clients.Group(SignalRGroupNames.Tracking(_tenant.ActiveBusinessId, driverToken))
              .SendAsync("LocationUpdate", new { latitude = req.Latitude, longitude = req.Longitude });
 
         return Ok();
@@ -494,9 +497,9 @@ public class DriverController : ControllerBase
             if (photos != null) await SavePhotos(delivery, photos, EvidenceType.DeliveryProof);
             await _db.SaveChangesAsync();
 
-            await _hub.Clients.Group($"Route_{driverToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken))
                 .SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "Delivered" });
-            await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new
+            await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new
             {
                 DeliveryId = delivery.Id,
                 Status = "Delivered",
@@ -532,7 +535,7 @@ public class DriverController : ControllerBase
                 try
                 {
                     parsedPayments = System.Text.Json.JsonSerializer.Deserialize<List<PaymentInputDto>>(
-                        req.PaymentsJson, 
+                        req.PaymentsJson,
                         new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                     );
                 }
@@ -595,11 +598,11 @@ public class DriverController : ControllerBase
             await _push.NotifyClientDeliveredAsync(delivery.Order.ClientId);
 
         // Notificar en tiempo real
-        await _hub.Clients.Group($"Order_{delivery.Order.AccessToken}").SendAsync("DeliveryUpdate", new { Status = "Delivered" });
-        await _hub.Clients.Group($"Route_{driverToken}").SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "Delivered" });
+        await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, delivery.Order.AccessToken)).SendAsync("DeliveryUpdate", new { Status = "Delivered" });
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "Delivered" });
 
         // ✨ PROPAGACIÓN MAGISTRAL ADEMÁS AL GRUPO DE ADMINS
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new {
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
             OrderId = delivery.Order.Id,
             Status = "Delivered",
             ClientName = delivery.Order.Client?.Name,
@@ -651,8 +654,8 @@ public class DriverController : ControllerBase
         );
 
         // Notificar Admin Dashboard
-        await _hub.Clients.Group($"Route_{driverToken}").SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "NotDelivered" });
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new {
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "NotDelivered" });
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
             DeliveryId = delivery.Id,
             OrderId = delivery.OrderId,
             TandaParticipantId = delivery.TandaParticipantId,
@@ -684,7 +687,7 @@ public class DriverController : ControllerBase
             // Notificación a la clienta sólo si la siguiente parada es una Order regular.
             if (nextDelivery.Order != null)
             {
-                await _hub.Clients.Group($"Order_{nextDelivery.Order.AccessToken}")
+                await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, nextDelivery.Order.AccessToken))
                     .SendAsync("DeliveryUpdate", new { Status = "InTransit", Message = "¡Tu turno! El repartidor va hacia ti." });
 
                 if (nextDelivery.Order.ClientId > 0)
@@ -788,10 +791,10 @@ public class DriverController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Notificar admin del gasto en tiempo real
-        await _hub.Clients.Group("Admins").SendAsync("ExpenseAdded", new { 
-            RouteId = route.Id, 
-            Amount = expense.Amount, 
-            Type = expense.ExpenseType 
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("ExpenseAdded", new {
+            RouteId = route.Id,
+            Amount = expense.Amount,
+            Type = expense.ExpenseType
         });
 
         return Ok(expense);
@@ -841,8 +844,8 @@ public class DriverController : ControllerBase
 
         var msgDto = new { id = msg.Id, sender = msg.Sender, text = msg.Text, timestamp = msg.Timestamp, deliveryRouteId = msg.DeliveryRouteId };
 
-        await _hub.Clients.Group($"Route_{driverToken}").SendAsync("ReceiveChatMessage", msgDto);
-        await _hub.Clients.Group("Admins").SendAsync("ReceiveChatMessage", msgDto);
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("ReceiveChatMessage", msgDto);
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("ReceiveChatMessage", msgDto);
 
         return Ok(msgDto);
     }
@@ -901,17 +904,18 @@ public class DriverController : ControllerBase
         var msgDto = new { id = msg.Id, deliveryId = msg.DeliveryId, sender = msg.Sender, text = msg.Text, timestamp = msg.Timestamp };
 
         // 🔔 ¡Ring ring! Le avisamos a la clienta por SignalR
-        await _hub.Clients.Group($"Order_{delivery.Order.AccessToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, delivery.Order.AccessToken))
             .SendAsync("ReceiveClientChatMessage", msgDto);
 
         // ✨ ADEMÁS PROPAGAMOS AL GRUPO DE ADMINS
-        await _hub.Clients.Group("Admins")
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId))
             .SendAsync("ReceiveClientChatMessage", msgDto);
 
         return Ok(msgDto);
     }
 
     [HttpPost("cami-command")]
+    [RequiresFeature(Feature.CamiAssistant)]
     public async Task<ActionResult<DriverCamiResponse>> CamiCommand(string driverToken, [FromBody] DriverCamiRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.CommandText))
@@ -921,4 +925,4 @@ public class DriverController : ControllerBase
 
         return Ok(new DriverCamiResponse(responseText));
     }
-}
+}

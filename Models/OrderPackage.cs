@@ -1,12 +1,15 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models
 {
-    public class OrderPackage
+    public class OrderPackage : ITenantOwned
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        /// <summary>Negocio (tenant) dueno de este paquete.</summary>
+        public int BusinessId { get; set; }
 
         [Required]
         public int OrderId { get; set; }

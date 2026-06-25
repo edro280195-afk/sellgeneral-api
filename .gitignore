@@ -489,3 +489,6 @@ appsettings.Development.json
 
 # Directorio local de Claude Code (worktrees de agentes, settings locales)
 .claude/
+
+# Archivos subidos en runtime (marca por tenant); el storage real es Cloudinary
+wwwroot/uploads/

@@ -12,10 +12,13 @@ public enum ClientAliasSource
     LiveAudio = 5,
 }
 
-public class ClientAlias
+public class ClientAlias : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este alias.</summary>
+    public int BusinessId { get; set; }
 
     public int ClientId { get; set; }
     public Client? Client { get; set; }

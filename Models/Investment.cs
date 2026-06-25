@@ -1,11 +1,14 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models
 {
-    public class Investment
+    public class Investment : ITenantOwned
     {
         public int Id { get; set; }
+
+        /// <summary>Negocio (tenant) dueno de esta inversion.</summary>
+        public int BusinessId { get; set; }
 
         public int SupplierId { get; set; }
 

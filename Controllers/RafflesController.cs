@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using EntregasApi.DTOs;
+using EntregasApi.Models;
 using EntregasApi.Services;
 
 namespace EntregasApi.Controllers;
@@ -8,6 +9,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[RequiresFeature(Feature.TandasRaffles)]
 public class RafflesController : ControllerBase
 {
     private readonly IRaffleService _raffleService;

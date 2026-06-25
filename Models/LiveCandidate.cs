@@ -16,9 +16,12 @@ public enum LiveCandidateSource
     SpokenAndComment = 2,
 }
 
-public class LiveCandidate
+public class LiveCandidate : ITenantOwned
 {
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este candidato.</summary>
+    public int BusinessId { get; set; }
 
     public int LiveSessionId { get; set; }
     public LiveSession? LiveSession { get; set; }

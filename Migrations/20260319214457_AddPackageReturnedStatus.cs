@@ -10,19 +10,13 @@ namespace EntregasApi.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTime>(
-                name: "ReturnedAt",
-                table: "OrderPackages",
-                type: "timestamp with time zone",
-                nullable: true);
+            // No-op intencional: ReturnedAt ya fue agregado en AddAlternativeAddress.
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "ReturnedAt",
-                table: "OrderPackages");
+            // No-op intencional: la columna pertenece a la migración anterior.
         }
     }
 }

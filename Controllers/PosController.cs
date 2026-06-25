@@ -10,30 +10,47 @@ namespace EntregasApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.PosAccess)]
+[RequiresFeature(Feature.Pos)]
 public class PosController : ControllerBase
 {
     private readonly IPosService _posService;
     private readonly IGeminiService _gemini;
     private readonly IElevenLabsTtsService _tts;
+    private readonly ICurrentAccount _currentAccount;
     private readonly IConfiguration _config;
-    private readonly string FrontendUrl;
+    private readonly ICurrentBusiness _currentBusiness;
 
-    public PosController(IPosService posService, IConfiguration config, IGeminiService gemini, IElevenLabsTtsService tts)
+    public PosController(
+        IPosService posService,
+        IConfiguration config,
+        IGeminiService gemini,
+        IElevenLabsTtsService tts,
+        ICurrentAccount currentAccount,
+        ICurrentBusiness currentBusiness)
     {
         _posService = posService;
         _config = config;
         _gemini = gemini;
         _tts = tts;
-        FrontendUrl = config["App:FrontendUrl"] ?? "https://regibazar.com";
+        _currentAccount = currentAccount;
+        _currentBusiness = currentBusiness;
     }
+
+    // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
+    private string FrontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
 
     [HttpPost("session/open")]
     public async Task<IActionResult> OpenSession([FromBody] OpenSessionRequest request)
     {
         try 
         {
-            var session = await _posService.OpenSessionAsync(request.UserId, (decimal)request.InitialCash);
+            if (_currentAccount.AccountId is not int accountId)
+            {
+                return Unauthorized(new { message = "Cuenta no autenticada." });
+            }
+
+            var session = await _posService.OpenSessionAsync(accountId, request.InitialCash);
             return Ok(session);
         }
         catch (Exception ex)

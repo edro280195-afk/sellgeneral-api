@@ -8,19 +8,12 @@ namespace EntregasApi.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<int>(
-                name: "winner_count",
-                table: "raffles",
-                type: "integer",
-                nullable: false,
-                defaultValue: 1);
+            // No-op intencional: winner_count ya fue creado en AddRaffleModuleEnhanced.
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "winner_count",
-                table: "raffles");
+            // No-op intencional: la columna pertenece a AddRaffleModuleEnhanced.
         }
     }
 }

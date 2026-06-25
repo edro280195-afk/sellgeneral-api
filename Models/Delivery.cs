@@ -3,10 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models;
 
-public class Delivery
+public class Delivery : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de esta entrega.</summary>
+    public int BusinessId { get; set; }
 
     // Una Delivery apunta a una Order normal O a un TandaParticipant (XOR, ver AppDbContext).
     public int? OrderId { get; set; }
@@ -58,10 +61,13 @@ public class Delivery
     public ICollection<DeliveryEvidence> Evidences { get; set; } = new List<DeliveryEvidence>();
 }
 
-public class DeliveryEvidence
+public class DeliveryEvidence : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de esta evidencia.</summary>
+    public int BusinessId { get; set; }
 
     [Required]
     public int DeliveryId { get; set; }

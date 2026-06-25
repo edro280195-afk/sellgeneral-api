@@ -101,6 +101,7 @@ public class ClientResolutionController : ControllerBase
     /// transacciones de puntos y aliases. Borra el source.
     /// </summary>
     [HttpPost("merge")]
+    [RequiresFeature(Feature.FacebookImport)]
     public async Task<IActionResult> Merge([FromBody] MergeClientsRequest req)
     {
         if (req.SourceId == req.TargetId) return BadRequest("Source y target son la misma clienta");
@@ -121,6 +122,7 @@ public class ClientResolutionController : ControllerBase
     /// por teléfono igual o nombre/dirección parecidos.
     /// </summary>
     [HttpGet("duplicate-suggestions")]
+    [RequiresFeature(Feature.FacebookImport)]
     public async Task<ActionResult<List<DuplicateSuggestionDto>>> DuplicateSuggestions([FromQuery] int limit = 50)
     {
         var capped = Math.Clamp(limit, 1, 200);
@@ -132,6 +134,7 @@ public class ClientResolutionController : ControllerBase
     /// GET /api/clients/merge-audits - Historial reciente de fusiones (automáticas y manuales).
     /// </summary>
     [HttpGet("merge-audits")]
+    [RequiresFeature(Feature.FacebookImport)]
     public async Task<ActionResult<List<ClientMergeAuditDto>>> GetMergeAudits([FromQuery] int take = 50)
     {
         var audits = await _resolver.GetMergeAuditsAsync(take);

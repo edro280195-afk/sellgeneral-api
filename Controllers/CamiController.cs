@@ -11,6 +11,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[RequiresFeature(Feature.CamiAssistant)]
 public class CamiController : ControllerBase
 {
     private readonly ICamiService _cami;

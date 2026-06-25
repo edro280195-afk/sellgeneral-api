@@ -22,11 +22,13 @@ public interface IGeminiService
 public class GeminiService : IGeminiService
 {
     private readonly Google.GenAI.Client _client;
+    private readonly ICurrentBusiness _currentBusiness;
     private readonly ILogger<GeminiService> _logger;
 
-    public GeminiService(IConfiguration config, ILogger<GeminiService> logger)
+    public GeminiService(IConfiguration config, ICurrentBusiness currentBusiness, ILogger<GeminiService> logger)
     {
         _logger = logger;
+        _currentBusiness = currentBusiness;
         var apiKey = config["Gemini:ApiKey"];
 
         if (string.IsNullOrEmpty(apiKey))
@@ -36,6 +38,18 @@ public class GeminiService : IGeminiService
 
         // El nuevo cliente oficial de Google GenAI
         _client = new Google.GenAI.Client(apiKey: apiKey);
+    }
+
+    /// <summary>
+    /// Nombre del negocio activo para los prompts (antes hardcodeado "Regi Bazar").
+    /// Usa GeminiBusinessName si está, si no el Name del Business.
+    /// </summary>
+    private async Task<string> ResolveBrandAsync(CancellationToken ct = default)
+    {
+        var business = await _currentBusiness.GetAsync(ct);
+        return string.IsNullOrWhiteSpace(business.GeminiBusinessName)
+            ? business.Name
+            : business.GeminiBusinessName!;
     }
 
     public async Task<List<AiParsedOrder>> ParseLiveTextAsync(string text, List<AiParsedOrder>? currentState = null)
@@ -61,6 +75,8 @@ Reglas Vitales:
 5. Si cancela o 'quita' algo, búscalo y réstale la cantidad, o elimínalo si llega a 0.
 6. Si un producto no tiene precio dictado, pon 0, a menos que el mismo producto ya tenga precio en el carrito, en ese caso usa ese precio.
 7. Si el dictado incluye a una persona que ya está en el carrito, junta sus productos si tienen exactamente el mismo nombre y precio sumando su cantidad. Si es producto diferente, haz un nuevo bloque {} para esa misma persona.";
+
+            systemPrompt = systemPrompt.Replace("Regi Bazar", await ResolveBrandAsync());
 
             var currentJson = currentState == null || currentState.Count == 0 ? "[]" : JsonSerializer.Serialize(currentState);
             var finalPrompt = $"{systemPrompt}\n\nESTADO ACTUAL DEL CARRITO:\n{currentJson}\n\nNUEVA INSTRUCCIÓN DEL USUARIO:\n\"{text}\"";
@@ -118,6 +134,8 @@ Reglas Vitales de formato:
 5. Usa un tono analítico pero empático ('coquette' / bazar friendly).
 6. Si ves fugas (TotalRevenue > TotalCollected o PendingAmount grande), adviértelo como 'Riesgo' con icono 🚨.
 7. Observa la tasa de éxito (DeliveredOrders vs TotalOrders).";
+
+            systemInstruction = systemInstruction.Replace("Regi Bazar", await ResolveBrandAsync());
 
             var config = new GenerateContentConfig
             {
@@ -198,6 +216,8 @@ REGLAS ESTRICTAS:
 7. Si el administrador da una instrucción vaga como 'Agrégamelos todos', incluye todos los IDs de la lista.
 8. Si no logras hacer coincidir ningún pedido, devuelve la lista vacía [] y un mensaje amigable pidiendo que repita.";
 
+            systemInstruction = systemInstruction.Replace("Regi Bazar", await ResolveBrandAsync());
+
             var config = new GenerateContentConfig
             {
                 SystemInstruction = new Content { Role = "system", Parts = new List<Part> { new Part { Text = systemInstruction } } },
@@ -246,7 +266,8 @@ REGLAS ESTRICTAS:
     public async Task<string> GetDashboardInsightAsync(object dashboardData)
     {
         var json = JsonSerializer.Serialize(dashboardData, new JsonSerializerOptions { WriteIndented = false });
-        var prompt = $@"Eres el analista de negocio de Regi Bazar. Con base en estos datos del dashboard, genera EXACTAMENTE 2 oraciones: una observación positiva y una alerta o recomendación accionable.
+        var brand = await ResolveBrandAsync();
+        var prompt = $@"Eres el analista de negocio de {brand}. Con base en estos datos del dashboard, genera EXACTAMENTE 2 oraciones: una observación positiva y una alerta o recomendación accionable.
 Tono: empático, emprendedor, en español mexicano. Sin markdown, sin asteriscos, sin emojis. Solo texto plano continuo.
 Datos: {json}";
 
@@ -260,7 +281,8 @@ Datos: {json}";
     public async Task<string> GetClientInsightAsync(object clientData)
     {
         var json = JsonSerializer.Serialize(clientData);
-        var prompt = $@"Eres la analista de clientes de Regi Bazar. Con base en estos datos, genera un análisis de comportamiento de compra en 3 oraciones máximo.
+        var brand = await ResolveBrandAsync();
+        var prompt = $@"Eres la analista de clientes de {brand}. Con base en estos datos, genera un análisis de comportamiento de compra en 3 oraciones máximo.
 Incluye: patrón de compra, riesgo de fuga (si aplica), y una recomendación de acción.
 Tono: empático y profesional, en español mexicano. Sin markdown, sin asteriscos.
 Datos: {json}";
@@ -340,6 +362,8 @@ ESTRUCTURA DE RESPUESTA (JSON PURO):
 }
 
 NUNCA devuelvas Markdown (```json), solo el JSON crudo.";
+
+            systemInstruction = systemInstruction.Replace("Regi Bazar", await ResolveBrandAsync());
 
             var config = new GenerateContentConfig
             {

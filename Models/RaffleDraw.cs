@@ -4,11 +4,15 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EntregasApi.Models;
 
 [Table("raffle_draws")]
-public class RaffleDraw
+public class RaffleDraw : ITenantOwned
 {
     [Key]
     [Column("id")]
     public Guid Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este sorteo ejecutado.</summary>
+    [Column("business_id")]
+    public int BusinessId { get; set; }
 
     [Required]
     [Column("raffle_id")]

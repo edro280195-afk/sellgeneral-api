@@ -5,8 +5,49 @@ namespace EntregasApi.DTOs;
 
 // ── Auth ──
 public record LoginRequest(string Email, string Password);
-public record LoginResponse(string Token, string Name, string Role, DateTime ExpiresAt);
+public record LoginResponse(
+    string Token,
+    string Name,
+    string Role,
+    DateTime ExpiresAt,
+    int AccountId,
+    List<AuthMembershipDto> Memberships);
 public record RegisterRequest(string Name, string Email, string Password);
+public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
+public record PhoneLoginRequest(string Phone);
+public record VerifyPhoneLoginRequest(string Phone, string Code);
+public record FacebookLoginRequest(string AccessToken);
+
+// Suscripcion / onboarding de negocio
+public record CreateBusinessRequest(
+    string Name,
+    string? Slug = null,
+    string? City = null,
+    string? FrontendUrl = null,
+    double? DepotLat = null,
+    double? DepotLng = null,
+    string? GeocodingRegion = null);
+
+public record BusinessOnboardingResponse(
+    int BusinessId,
+    string Name,
+    string Slug,
+    string Role,
+    SubscriptionAccountStateDto Subscription);
+
+public record SubscriptionAccountStateDto(
+    string EffectivePlan,
+    string PlanTier,
+    string SubscriptionStatus,
+    DateTime? TrialEndsAt,
+    DateTime? CurrentPeriodEndsAt,
+    string? PendingPlanTier,
+    DateTime? PendingPlanEffectiveAt,
+    bool IsLocked,
+    int DaysLeft,
+    int PastDueGraceDays);
+
+public record ChangePlanRequest(string PlanTier);
 
 // ── General ──
 public record PagedResult<T>(
@@ -846,7 +887,7 @@ public record CamiProactiveSuggestionDto(
     int Priority);
 
 // ── POS ──
-public record OpenSessionRequest(int UserId, decimal InitialCash);
+public record OpenSessionRequest(decimal InitialCash);
 public record CloseSessionRequest(int SessionId, decimal ActualCash);
 public record PaymentRequest(int OrderId, int SessionId, decimal Amount, string Method);
 public record ScanItemRequest(int OrderId, string Sku);
@@ -995,3 +1036,135 @@ public record ClientMergeAuditDto(
     int OrdersMoved,
     int AliasesMoved,
     DateTime MergedAt);
+
+// ── Reclamar perfil (plan 0.3) ──
+
+/// <summary>
+/// Candidato a reclamar para una Account autenticada. Datos no sensibles del Client
+/// + nombre del negocio para que la clienta decida a qué vendedora pertenece.
+/// NO expone teléfono, dirección ni pedidos: eso se ve solo después de reclamar.
+/// </summary>
+public record ClientClaimCandidateDto(
+    int ClientId,
+    int BusinessId,
+    string BusinessName,
+    string ClientName,
+    string? City,
+    int OrdersCount,
+    DateTime? LastOrderAt,
+    string MatchedBy);   // "phone" | "order-token"
+
+/// <summary>
+/// Resultado de un enlace Account ↔ Client.
+/// </summary>
+public record ClientClaimResultDto(
+    int ClientId,
+    int BusinessId,
+    string BusinessName,
+    string ClientName,
+    string LinkedBy,         // "order-token" | "phone-match" | "idempotent"
+    DateTime ClaimedAt);
+
+/// <summary>
+/// Detalle del Client que la Account YA tiene reclamado (camino cross-tenant).
+/// Se omite teléfono y dirección: la clienta ya sabe los suyos; el panel admin
+/// del OTRO negocio NO debe filtrarse aquí.
+/// </summary>
+public record ClaimedClientSummaryDto(
+    int ClientId,
+    int BusinessId,
+    string BusinessName,
+    string ClientName,
+    string LinkedBy,
+    DateTime ClaimedAt);
+
+// ── Suscripcion de plataforma (Fase 1.3) ──
+
+/// <summary>
+/// Configuracion de precios que el frontend de pago (FE-4) consume para
+/// mostrar el resumen del plan y la periodicidad elegida.
+/// El backend es la fuente de verdad: el front NO inventa precios.
+/// </summary>
+public record SubscriptionPlanPriceDto(
+    string PlanTier,
+    decimal MonthlyPrice,
+    decimal QuarterlyPrice,
+    decimal AnnualPrice,
+    int QuarterlyDiscountPct,
+    int AnnualDiscountPct,
+    string Currency);
+
+public record SubscriptionPricingDto(
+    List<SubscriptionPlanPriceDto> Plans,
+    string Currency);
+
+/// <summary>
+/// Llave publica de MP de la PLATAFORMA (no del tenant). El brick de tarjeta
+/// de FE-4 la consume para tokenizar la tarjeta del owner.
+/// </summary>
+public record PlatformMpPublicKeyDto(string PublicKey);
+
+/// <summary>
+/// Request para crear el preapproval. El backend completa auto_recurring con
+/// los precios de la periodicidad elegida; el cardTokenId es opcional
+/// (cuando el brick lo entrega listo para cobros recurrentes).
+/// </summary>
+public record CreatePreapprovalRequest(
+    string PlanTier,
+    string Periodicity,
+    string PayerEmail,
+    string? CardTokenId = null);
+
+/// <summary>
+/// Request para ajustar un preapproval existente (upgrade de plan o cambio
+/// de periodicidad). Se aplica de inmediato porque es upgrade; downgrade usa
+/// PendingPlanTier de 1.2.
+/// </summary>
+public record UpdatePreapprovalRequest(
+    string PlanTier,
+    string Periodicity);
+
+public record PreapprovalSummaryDto(
+    string PreapprovalId,
+    string PlanTier,
+    string Periodicity,
+    decimal Amount,
+    string Currency,
+    string Status,
+    DateTime? NextPaymentDate,
+    DateTime? CurrentPeriodEndsAt,
+    DateTime? CancellationEffectiveAt,
+    string? InitPoint);
+
+// ── Kit de marca por tenant (Fase FE-0) ──
+
+public record BrandDto(
+    string? LogoUrl,
+    string? BannerUrl,
+    string BrandPrimaryColor,
+    string? BrandAccentColor);
+
+public record UpdateBrandRequest(
+    string? Name = null,
+    string? BrandPrimaryColor = null,
+    string? BrandAccentColor = null);
+
+public record BrandAssetDto(string Kind, string Url);
+
+public record SubscriptionSummaryDto(
+    string EffectivePlan,
+    string SubscriptionStatus,
+    DateTime? TrialEndsAt,
+    DateTime? CurrentPeriodEndsAt,
+    bool IsLocked,
+    int DaysLeft,
+    int PastDueGraceDays);
+
+public record BusinessMeDto(
+    int Id,
+    string Name,
+    string Slug,
+    string? City,
+    BrandDto Brand,
+    SubscriptionSummaryDto Subscription,
+    List<string> Features);

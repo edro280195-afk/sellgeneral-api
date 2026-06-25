@@ -24,10 +24,12 @@ public interface IRaffleService
 public class RaffleService : IRaffleService
 {
     private readonly AppDbContext _db;
+    private readonly ICurrentBusiness _currentBusiness;
 
-    public RaffleService(AppDbContext db)
+    public RaffleService(AppDbContext db, ICurrentBusiness currentBusiness)
     {
         _db = db;
+        _currentBusiness = currentBusiness;
     }
 
     public async Task<List<RaffleSummaryDto>> GetRafflesAsync(string? status = null)
@@ -829,7 +831,7 @@ public class RaffleService : IRaffleService
                 e.Order.Client.Name,
                 e.Order.Status.ToString(),
                 e.Order.Total,
-                $"https://regibazar.com/pedido/{e.Order.AccessToken}",
+                $"{(_currentBusiness.Current.FrontendUrl ?? "https://regibazar.com").TrimEnd('/')}/pedido/{e.Order.AccessToken}",
                 e.Order.Items.Count,
                 e.Order.OrderType.ToString(),
                 e.Order.CreatedAt,

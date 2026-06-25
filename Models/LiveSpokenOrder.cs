@@ -2,9 +2,12 @@ using System.ComponentModel.DataAnnotations;
 
 namespace EntregasApi.Models;
 
-public class LiveSpokenOrder
+public class LiveSpokenOrder : ITenantOwned
 {
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este audio detectado.</summary>
+    public int BusinessId { get; set; }
 
     public int LiveSessionId { get; set; }
     public LiveSession? LiveSession { get; set; }

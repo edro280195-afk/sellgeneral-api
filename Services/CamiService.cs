@@ -26,6 +26,8 @@ public class CamiService : ICamiService
     private readonly IElevenLabsTtsService _tts;
     private readonly IConfiguration _config;
     private readonly IOrderService _orderService;
+    private readonly ICurrentBusiness _currentBusiness;
+    private readonly IEntitlementService _entitlements;
 
     private const string MODEL = "gemini-2.5-flash";
 
@@ -468,7 +470,7 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         }
     };
 
-    public CamiService(AppDbContext db, IConfiguration config, ILogger<CamiService> logger, IRouteOptimizerService optimizer, IElevenLabsTtsService tts, IOrderService orderService)
+    public CamiService(AppDbContext db, IConfiguration config, ILogger<CamiService> logger, IRouteOptimizerService optimizer, IElevenLabsTtsService tts, IOrderService orderService, ICurrentBusiness currentBusiness, IEntitlementService entitlements)
     {
         _db = db;
         _config = config;
@@ -476,14 +478,30 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         _optimizer = optimizer;
         _tts = tts;
         _orderService = orderService;
+        _currentBusiness = currentBusiness;
+        _entitlements = entitlements;
         var apiKey = config["Gemini:ApiKey"];
         if (string.IsNullOrEmpty(apiKey))
             throw new InvalidOperationException("Falta Gemini:ApiKey en appsettings.json");
         _gemini = new GenAiClient(apiKey: apiKey);
     }
 
+    /// <summary>
+    /// Nombre del negocio activo para los prompts de C.A.M.I. (antes hardcodeado "Regi Bazar").
+    /// </summary>
+    private async Task<string> ResolveBrandAsync(CancellationToken ct = default)
+    {
+        var business = await _currentBusiness.GetAsync(ct);
+        return string.IsNullOrWhiteSpace(business.GeminiBusinessName)
+            ? business.Name
+            : business.GeminiBusinessName!;
+    }
+
     public async Task<string> ProcessDriverCommandAsync(string routeToken, string commandText)
     {
+        if (!await _entitlements.HasFeatureAsync(Feature.CamiAssistant))
+            return "C.A.M.I. está disponible en el plan Elite.";
+
         if (string.IsNullOrWhiteSpace(commandText))
             return "No te escuché bien. ¿Me repites?";
 
@@ -503,13 +521,15 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
 
         var contextMessage = $"Solo puedes modificar o consultar los pedidos con IDs: {string.Join(", ", orderIds)}.";
 
+        var brand = await ResolveBrandAsync();
+
         // 3. Preparar configuración de Gemini
         var config = new GenerateContentConfig
         {
             SystemInstruction = new Content
             {
                 Role = "system",
-                Parts = new List<Part> { new Part { Text = SYSTEM_INSTRUCTION_DRIVER + "\n\nCONTEXTO DE RUTA ACTUAL:\n" + contextMessage } }
+                Parts = new List<Part> { new Part { Text = SYSTEM_INSTRUCTION_DRIVER.Replace("Regi Bazar", brand) + "\n\nCONTEXTO DE RUTA ACTUAL:\n" + contextMessage } }
             },
             Tools = TOOLS,
             Temperature = 0.65f,
@@ -580,6 +600,9 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
     // ── BUCLE PRINCIPAL DE CONVERSACIÓN ─────────────────────────────────────
     public async Task<string> ChatAsync(CamiChatRequest request)
     {
+        if (!await _entitlements.HasFeatureAsync(Feature.CamiAssistant))
+            return "C.A.M.I. está disponible en el plan Elite.";
+
         if (string.IsNullOrWhiteSpace(request.NewMessage))
             return "No te escuché bien. ¿Me repites?";
 
@@ -587,12 +610,14 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         var nowMx = BackendExtensions.GetMexicoNow();
         var contextoTemporal = $"\n\nCONTEXTO TEMPORAL CRÍTICO:\nHoy es {nowMx:dddd, dd 'de' MMMM 'de' yyyy}. La hora actual es {nowMx:HH:mm}.";
 
+        var brand = await ResolveBrandAsync();
+
         var config = new GenerateContentConfig
         {
             SystemInstruction = new Content
             {
                 Role = "system",
-                Parts = new List<Part> { new Part { Text = SYSTEM_INSTRUCTION + contextoTemporal } }
+                Parts = new List<Part> { new Part { Text = SYSTEM_INSTRUCTION.Replace("Regi Bazar", brand) + contextoTemporal } }
             },
             Tools = TOOLS,
             Temperature = 0.85f,
@@ -1633,9 +1658,10 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         await _db.SaveChangesAsync();
 
         // --- OPTIMIZACIÓN GEOGRÁFICA ---
-        // Usamos una ubicación de inicio base (puedes ajustarla a la del negocio si existe en AppSettings)
-        var lat = _config.GetValue<double>("Cami:RouteCenterLat", 25.8694);
-        var lng = _config.GetValue<double>("Cami:RouteCenterLng", -97.5027);
+        // Depot del negocio activo (antes hardcodeado vía Cami:RouteCenter); cae al config solo si no está seteado.
+        var business = await _currentBusiness.GetAsync();
+        var lat = business.DepotLat != 0 ? business.DepotLat : _config.GetValue<double>("Cami:RouteCenterLat", 27.4861);
+        var lng = business.DepotLng != 0 ? business.DepotLng : _config.GetValue<double>("Cami:RouteCenterLng", -99.5069);
         var optimizedOrders = _optimizer.OptimizeRoute(orders, lat, lng);
 
         int sort = 0;
@@ -1735,10 +1761,15 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
 
     public async Task<CamiGreetingResponse> GetProactiveGreetingAsync(Order order)
     {
+        if (!await _entitlements.HasFeatureAsync(Feature.CamiAssistant))
+            return new CamiGreetingResponse("Hola, estamos preparando tu pedido.");
+
         var itemsList = string.Join(", ", order.Items.Select(i => $"{i.Quantity}x {i.ProductName}"));
         var balanceInfo = order.BalanceDue > 0 
             ? $"Su saldo pendiente es de {order.BalanceDue:F0} pesos." 
             : "Su pedido está totalmente pagado.";
+
+        var brand = await ResolveBrandAsync();
 
         var prompt = $@"
         Genera un saludo proactivo para la clienta {order.Client.Name}.
@@ -1749,7 +1780,7 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         Status actual: {order.Status.ToSpanishString()}.
 
         REGLAS:
-        - Eres C.A.M.I., la asistente virtual coquette de Regi Bazar.
+        - Eres C.A.M.I., la asistente virtual coquette de {brand}.
         - Saludo muy cálido y amigable.
         - Menciona qué compró y su saldo (si aplica).
         - SIEMPRE di la palabra 'pesos' en lugar de usar el símbolo '$'.
@@ -1760,7 +1791,7 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         try
         {
             var response = await _gemini.Models.GenerateContentAsync(MODEL, prompt);
-            var message = response.Text?.Trim() ?? "¡Hola! Tu pedido de Regi Bazar está en proceso. ✨";
+            var message = response.Text?.Trim() ?? $"¡Hola! Tu pedido de {brand} está en proceso. ✨";
 
             string? audioBase64 = null;
             try
@@ -1786,6 +1817,9 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
     // ══════════════════════════════════════════════════════════════════════════
     public async Task<List<CamiProactiveSuggestionDto>> GetProactiveSuggestionsAsync()
     {
+        if (!await _entitlements.HasFeatureAsync(Feature.CamiAssistant))
+            return new List<CamiProactiveSuggestionDto>();
+
         var now = DateTime.UtcNow;
         var sevenDaysAgo = now.AddDays(-7);
         var result = new List<CamiProactiveSuggestionDto>();

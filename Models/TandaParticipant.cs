@@ -4,11 +4,15 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EntregasApi.Models;
 
 [Table("tanda_participants")]
-public class TandaParticipant
+public class TandaParticipant : ITenantOwned
 {
     [Key]
     [Column("id")]
     public Guid Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este participante.</summary>
+    [Column("business_id")]
+    public int BusinessId { get; set; }
 
     // Relaciones
     [ForeignKey(nameof(Client))]

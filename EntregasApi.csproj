@@ -31,4 +31,8 @@
     <Compile Remove="Tests\**\*.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EntregasApi.Tests" />
+  </ItemGroup>
+
 </Project>

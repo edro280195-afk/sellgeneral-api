@@ -25,12 +25,14 @@ public class OrdersController : ControllerBase
     private readonly IHubContext<DeliveryHub> _hub;
     private readonly IClientResolverService _clientResolver;
     private readonly ILogger<OrdersController> _logger;
-    private readonly string FrontendUrl;
+    private readonly ICurrentTenant _tenant;
+    private readonly ICurrentBusiness _currentBusiness;
 
     public OrdersController(AppDbContext db, IExcelService excelService,
         ITokenService tokenService, IConfiguration config, IPushNotificationService pushService,
         IGeminiService geminiService, IOrderService orderService, IHubContext<DeliveryHub> hub,
-        IClientResolverService clientResolver, ILogger<OrdersController> logger)
+        IClientResolverService clientResolver, ILogger<OrdersController> logger,
+        ICurrentTenant tenant, ICurrentBusiness currentBusiness)
     {
         _db = db;
         _excelService = excelService;
@@ -42,8 +44,12 @@ public class OrdersController : ControllerBase
         _hub = hub;
         _clientResolver = clientResolver;
         _logger = logger;
-        FrontendUrl = config["App:FrontendUrl"] ?? "https://regibazar.com";
+        _tenant = tenant;
+        _currentBusiness = currentBusiness;
     }
+
+    // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
+    private string FrontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
 
     [HttpPost("{id}/apply-birthday-discount")]
     public async Task<ActionResult<OrderSummaryDto>> ApplyBirthdayDiscount(int id)
@@ -300,6 +306,7 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet("export")]
+    [RequiresFeature(Feature.Exports)]
     public async Task<IActionResult> Export([FromQuery] DateTime start, [FromQuery] DateTime end)
     {
         var fileBytes = await _excelService.GenerateReportExcelAsync(start, end);
@@ -323,7 +330,7 @@ public class OrdersController : ControllerBase
     [HttpPost("manual")]
     public async Task<ActionResult<OrderSummaryDto>> CreateManual(ManualOrderRequest req)
     {
-        var settings = await _db.AppSettings.FirstAsync();
+        var settings = await _db.GetOrCreateTenantSettingsAsync();
         var typedName = req.ClientName?.Trim() ?? string.Empty;
 
         // 1. Resolución de clienta:
@@ -585,7 +592,7 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Sincronización Admin-a-Admin en tiempo real
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new {
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
             OrderId = order.Id,
             Status = order.Status.ToString(),
             UpdatedBy = "Admin"
@@ -596,7 +603,7 @@ public class OrdersController : ControllerBase
         {
             var route = await _db.DeliveryRoutes.FindAsync(order.DeliveryRouteId.Value);
             if (route != null)
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = order.Id,
                     ClientName = order.Client?.Name ?? "",
                     NewTotal = order.Total
@@ -942,7 +949,7 @@ public class OrdersController : ControllerBase
 
         if (order == null) return NotFound("Orden no encontrada");
 
-        var settings = await _db.AppSettings.FirstAsync();
+        var settings = await _db.GetOrCreateTenantSettingsAsync();
 
         // 1. Process OrderType and ShippingCost changes FIRST
         if (!string.IsNullOrEmpty(req.OrderType) && Enum.TryParse<OrderType>(req.OrderType, true, out var newOrderType))
@@ -1034,9 +1041,9 @@ public class OrdersController : ControllerBase
         else if (parsedNewStatus.HasValue && parsedNewStatus.Value == EntregasApi.Models.OrderStatus.Delivered && order.Client != null)
         {
             await _pushService.SendNotificationToClientAsync(
-                order.Client.Id, 
-                "Pedido Entregado 🌸", 
-                "¡Gracias por tu compra en Regi Bazar!", 
+                order.Client.Id,
+                "Pedido Entregado 🌸",
+                $"¡Gracias por tu compra en {_currentBusiness.Current.Name}!",
                 $"/o/{order.AccessToken}");
         }
         else if (parsedNewStatus.HasValue && parsedNewStatus.Value == EntregasApi.Models.OrderStatus.InRoute && order.Client != null)
@@ -1097,7 +1104,7 @@ public class OrdersController : ControllerBase
             }
         }
 
-        var settings = await _db.AppSettings.FirstAsync();
+        var settings = await _db.GetOrCreateTenantSettingsAsync();
 
         // Lógica de Tipo de Orden
         if (Enum.TryParse<OrderType>(req.OrderType, true, out var newType))
@@ -1154,14 +1161,14 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Sincronización Admin-a-Admin
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
 
         // ✨ Notificar al conductor si el pedido está en ruta activa
         if (order.DeliveryRouteId.HasValue)
         {
             var route = await _db.DeliveryRoutes.FindAsync(order.DeliveryRouteId.Value);
             if (route != null)
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = order.Id,
                     ClientName = order.Client?.Name ?? "",
                     NewTotal = order.Total
@@ -1219,14 +1226,14 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Sincronización Admin-a-Admin
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
 
         // ✨ Notificar al conductor si el pedido está en ruta activa
         if (order.DeliveryRouteId.HasValue)
         {
             var route = await _db.DeliveryRoutes.FindAsync(order.DeliveryRouteId.Value);
             if (route != null)
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = order.Id,
                     ClientName = order.Client?.Name ?? "",
                     NewTotal = order.Total
@@ -1263,14 +1270,14 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Sincronización Admin-a-Admin
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new { OrderId = order.Id, Status = order.Status.ToString(), UpdatedBy = "Admin" });
 
         // ✨ Notificar al conductor si el pedido está en ruta activa
         if (order.DeliveryRouteId.HasValue)
         {
             var route = await _db.DeliveryRoutes.FindAsync(order.DeliveryRouteId.Value);
             if (route != null)
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = order.Id,
                     ClientName = order.Client?.Name ?? "",
                     NewTotal = order.Total
@@ -1383,7 +1390,7 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync();
 
         // ✨ Sincronización Admin-a-Admin
-        await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new {
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
             OrderId = id,
             Status = order.Status.ToString(),
             PaymentAdded = true,
@@ -1399,7 +1406,7 @@ public class OrdersController : ControllerBase
             {
                 var totalPaid = order.Payments.Sum(p => p.Amount);
                 var balanceDue = Math.Max(0, order.Total - totalPaid);
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = id,
                     ClientName = order.Client?.Name ?? "",
                     NewTotal = order.Total,
@@ -1437,7 +1444,7 @@ public class OrdersController : ControllerBase
             {
                 var totalPaid = affectedOrder.Payments.Sum(p => p.Amount);
                 var balanceDue = Math.Max(0, affectedOrder.Total - totalPaid);
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("OrderDataChanged", new {
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("OrderDataChanged", new {
                     OrderId = orderId,
                     ClientName = affectedOrder.Client?.Name ?? "",
                     NewTotal = affectedOrder.Total,

@@ -1,22 +1,37 @@
-﻿using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
+﻿using EntregasApi.Data;
+using EntregasApi.Services;
+using Microsoft.AspNetCore.SignalR;
 
-namespace EntregasApi.Hubs
+namespace EntregasApi.Hubs;
+
+/// <summary>
+/// Hub del panel de pedidos. Antes usaba "Admins" y "order_{accessToken}"
+/// (lowercase) sin prefijo de tenant; ahora todo prefijado con "t{BusinessId}_"
+/// y "order_" → "Order_" para unificar la convención (0.4).
+/// </summary>
+public class OrderHub : TenantAwareHubBase
 {
-    public class OrderHub : Hub
-    {
-        // 1. El panel de tu esposa llamará a esto al abrir la página
-        public async Task JoinAdminGroup()
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, "Admins");
-        }
+    public OrderHub(AppDbContext db, ICurrentTenant currentTenant) : base(db, currentTenant) { }
 
-        // 2. (Opcional) La clienta podría unirse a un grupo con su token 
-        // por si el admin le quiere mandar un mensaje de regreso.
-        public async Task JoinOrderGroup(string accessToken)
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, $"order_{accessToken}");
-        }
+    public async Task<bool> JoinAdminGroup(string? businessIdHeader = null)
+    {
+        var businessId = await ResolveBusinessFromJwtAsync(businessIdHeader);
+        if (businessId is null) return false;
+
+        SetBusiness(businessId.Value);
+        await Groups.AddToGroupAsync(Context.ConnectionId, SignalRGroupNames.Admins(businessId.Value));
+        return true;
+    }
+
+    public async Task<bool> JoinOrderGroup(string accessToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken)) return false;
+
+        var businessId = await ResolveBusinessByOrderTokenAsync(accessToken);
+        if (businessId is null) return false;
+
+        SetBusiness(businessId.Value);
+        await Groups.AddToGroupAsync(Context.ConnectionId, SignalRGroupNames.Order(businessId.Value, accessToken));
+        return true;
     }
 }

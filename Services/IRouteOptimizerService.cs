@@ -25,7 +25,8 @@ public record OptimizedRoute(
 public interface IRouteOptimizerService
 {
     /// <summary>
-    /// Calcula el orden óptimo de paradas. Por default usa Haversine local para evitar costos.
+    /// Calcula el orden óptimo de paradas. Entrada/Pro usan heurística local;
+    /// Elite intenta Google Routes si hay llave configurada y cae a heurística si falla.
     /// </summary>
     Task<OptimizedRoute> OptimizeAsync(
         List<RouteStop> stops,

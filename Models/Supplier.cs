@@ -1,10 +1,13 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace EntregasApi.Models
 {
-    public class Supplier
+    public class Supplier : ITenantOwned
     {
         public int Id { get; set; }
+
+        /// <summary>Negocio (tenant) dueño.</summary>
+        public int BusinessId { get; set; }
 
         [Required, MaxLength(200)]
         public string Name { get; set; } = string.Empty;

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using EntregasApi.DTOs;
+using EntregasApi.Models;
 using EntregasApi.Services;
 
 namespace EntregasApi.Controllers;
@@ -9,6 +10,7 @@ namespace EntregasApi.Controllers;
 [Route("api/[controller]")]
 [Authorize] // Protegemos el endpoint por defecto
 [Authorize]
+[RequiresFeature(Feature.TandasRaffles)]
 public class TandaController : ControllerBase
 {
     private readonly ITandaService _tandaService;

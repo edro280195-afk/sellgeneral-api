@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using EntregasApi.Hubs;
 using EntregasApi.DTOs;
+using EntregasApi.Services;
 
 namespace EntregasApi.Services;
 
@@ -11,11 +12,13 @@ public class PosService : IPosService
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<PosHub> _hub;
+    private readonly ICurrentTenant _tenant;
 
-    public PosService(AppDbContext db, IHubContext<PosHub> hub)
+    public PosService(AppDbContext db, IHubContext<PosHub> hub, ICurrentTenant tenant)
     {
         _db = db;
         _hub = hub;
+        _tenant = tenant;
     }
 
     public async Task<Order> ScanItemAsync(int orderId, string sku)
@@ -56,7 +59,7 @@ public class PosService : IPosService
         await _db.SaveChangesAsync();
 
         // Actualizar Satélites (Celulares)
-        await _hub.Clients.Group($"order_{orderId}").SendAsync("ItemAddedToOrder", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosOrder(_tenant.ActiveBusinessId, orderId)).SendAsync("ItemAddedToOrder", new {
             OrderId = order.Id,
             Sku = sku,
             Total = order.Total,
@@ -65,7 +68,7 @@ public class PosService : IPosService
         });
 
         // Actualizar Nodriza (iPad)
-        await _hub.Clients.Group("PosNodriza").SendAsync("OrderCreated", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosNodriza(_tenant.ActiveBusinessId)).SendAsync("OrderCreated", new {
             Id = order.Id,
             ClientId = order.ClientId,
             ClientName = order.Client?.Name,
@@ -108,13 +111,13 @@ public class PosService : IPosService
 
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group($"order_{order.Id}").SendAsync("ItemRemovedFromOrder", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosOrder(_tenant.ActiveBusinessId, order.Id)).SendAsync("ItemRemovedFromOrder", new {
             OrderId = order.Id,
             OrderItemId = orderItemId,
             Total = order.Total
         });
 
-        await _hub.Clients.Group("PosNodriza").SendAsync("OrderCreated", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosNodriza(_tenant.ActiveBusinessId)).SendAsync("OrderCreated", new {
             Id = order.Id,
             ClientId = order.ClientId,
             ClientName = order.Client?.Name,
@@ -139,7 +142,7 @@ public class PosService : IPosService
         return order;
     }
 
-    public async Task<CashRegisterSession> OpenSessionAsync(int userId, decimal initialCash)
+    public async Task<CashRegisterSession> OpenSessionAsync(int accountId, decimal initialCash)
     {
         var openSession = await _db.CashRegisterSessions
             .FirstOrDefaultAsync(s => s.Status == SessionStatus.Open);
@@ -148,7 +151,7 @@ public class PosService : IPosService
 
         var session = new CashRegisterSession
         {
-            UserId = userId,
+            AccountId = accountId,
             InitialCash = initialCash,
             OpeningTime = DateTime.UtcNow,
             Status = SessionStatus.Open
@@ -163,7 +166,7 @@ public class PosService : IPosService
     public async Task<CashRegisterSession?> GetActiveSessionAsync()
     {
         return await _db.CashRegisterSessions
-            .Include(s => s.User)
+            .Include(s => s.Account)
             .FirstOrDefaultAsync(s => s.Status == SessionStatus.Open);
     }
 
@@ -225,7 +228,7 @@ public class PosService : IPosService
         await _db.SaveChangesAsync();
 
         // 3. Notificar a la Nodriza (iPad)
-        await _hub.Clients.Group("PosNodriza").SendAsync("OrderCreated", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosNodriza(_tenant.ActiveBusinessId)).SendAsync("OrderCreated", new {
             Id = order.Id,
             ClientId = client.Id,
             ClientName = client.Name,
@@ -321,7 +324,7 @@ public class PosService : IPosService
 
     private async Task NotifyNodrizaAsync(Order order)
     {
-        await _hub.Clients.Group("PosNodriza").SendAsync("OrderCreated", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosNodriza(_tenant.ActiveBusinessId)).SendAsync("OrderCreated", new {
             Id = order.Id,
             ClientId = order.ClientId,
             ClientName = order.Client?.Name,
@@ -409,7 +412,7 @@ public class PosService : IPosService
 
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group("PosNodriza").SendAsync("OrderPaid", new {
+        await _hub.Clients.Group(SignalRGroupNames.PosNodriza(_tenant.ActiveBusinessId)).SendAsync("OrderPaid", new {
             OrderId = order.Id,
             Amount = amountReceived,
             Method = paymentMethod

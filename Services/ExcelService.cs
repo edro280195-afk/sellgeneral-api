@@ -28,7 +28,7 @@ public class ExcelService : IExcelService
     public async Task<ExcelUploadResult> ProcessExcelAsync(Stream fileStream, string frontendBaseUrl)
     {
         var warnings = new List<string>();
-        var settings = await _db.AppSettings.FirstAsync();
+        var settings = await _db.GetOrCreateTenantSettingsAsync();
 
         using var package = new ExcelPackage(fileStream);
         var worksheet = package.Workbook.Worksheets[0];

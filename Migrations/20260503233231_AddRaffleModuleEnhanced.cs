@@ -12,6 +12,102 @@ namespace EntregasApi.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "products",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                    description = table.Column<string>(type: "text", nullable: true),
+                    base_price = table.Column<decimal>(type: "decimal(12, 2)", nullable: false),
+                    is_active = table.Column<bool>(type: "boolean", nullable: false),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_products", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "tandas",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                    total_weeks = table.Column<int>(type: "integer", nullable: false),
+                    weekly_amount = table.Column<decimal>(type: "decimal(12, 2)", nullable: false),
+                    penalty_amount = table.Column<decimal>(type: "decimal(12, 2)", nullable: false),
+                    start_date = table.Column<DateTime>(type: "date", nullable: false),
+                    status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    access_token = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_tandas", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_tandas_products_product_id",
+                        column: x => x.product_id,
+                        principalTable: "products",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "tanda_participants",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    customer_id = table.Column<int>(type: "integer", nullable: false),
+                    tanda_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    assigned_turn = table.Column<int>(type: "integer", nullable: false),
+                    is_delivered = table.Column<bool>(type: "boolean", nullable: false),
+                    delivery_date = table.Column<DateTime>(type: "date", nullable: true),
+                    status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    variant = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_tanda_participants", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_tanda_participants_Clients_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "Clients",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_tanda_participants_tandas_tanda_id",
+                        column: x => x.tanda_id,
+                        principalTable: "tandas",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "payments",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    participant_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    week_number = table.Column<int>(type: "integer", nullable: false),
+                    amount_paid = table.Column<decimal>(type: "decimal(12, 2)", nullable: false),
+                    penalty_paid = table.Column<decimal>(type: "decimal(12, 2)", nullable: false),
+                    payment_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    is_verified = table.Column<bool>(type: "boolean", nullable: false),
+                    notes = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_payments", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_payments_tanda_participants_participant_id",
+                        column: x => x.participant_id,
+                        principalTable: "tanda_participants",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "raffles",
                 columns: table => new
                 {
@@ -219,6 +315,11 @@ namespace EntregasApi.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_payments_participant_id",
+                table: "payments",
+                column: "participant_id");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_raffles_prize_product_id",
                 table: "raffles",
                 column: "prize_product_id");
@@ -242,6 +343,22 @@ namespace EntregasApi.Migrations
                 name: "IX_raffles_winner_id",
                 table: "raffles",
                 column: "winner_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_tanda_participants_customer_id",
+                table: "tanda_participants",
+                column: "customer_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TandaParticipant_Tanda_Turn",
+                table: "tanda_participants",
+                columns: new[] { "tanda_id", "assigned_turn" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_tandas_product_id",
+                table: "tandas",
+                column: "product_id");
         }
 
         /// <inheritdoc />
@@ -251,6 +368,10 @@ namespace EntregasApi.Migrations
             migrationBuilder.DropTable(name: "raffle_entries");
             migrationBuilder.DropTable(name: "raffle_participants");
             migrationBuilder.DropTable(name: "raffles");
+            migrationBuilder.DropTable(name: "payments");
+            migrationBuilder.DropTable(name: "tanda_participants");
+            migrationBuilder.DropTable(name: "tandas");
+            migrationBuilder.DropTable(name: "products");
         }
     }
 }

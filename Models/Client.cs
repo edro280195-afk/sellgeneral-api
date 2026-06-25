@@ -3,10 +3,20 @@ using System.ComponentModel.DataAnnotations;
 
 namespace EntregasApi.Models;
 
-public class Client
+public class Client : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de este registro de clienta.</summary>
+    public int BusinessId { get; set; }
+
+    /// <summary>
+    /// Account global enlazada cuando la persona reclamó su perfil (null = clienta anónima
+    /// creada por la vendedora, estado normal). Una Account ↔ muchas Client (una por vendedora). Ver 0.3.
+    /// </summary>
+    public int? AccountId { get; set; }
+    public Account? Account { get; set; }
 
     [Required, MaxLength(200)]
     public string Name { get; set; } = string.Empty;

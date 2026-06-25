@@ -14,13 +14,18 @@ namespace EntregasApi.Controllers
     public class LoyaltyController : ControllerBase
     {
         private readonly AppDbContext _db;
-        private readonly string _frontendUrl;
+        private readonly IConfiguration _config;
+        private readonly ICurrentBusiness _currentBusiness;
 
-        public LoyaltyController(AppDbContext db, IConfiguration config)
+        public LoyaltyController(AppDbContext db, IConfiguration config, ICurrentBusiness currentBusiness)
         {
             _db = db;
-            _frontendUrl = config["App:FrontendUrl"] ?? "https://regibazar.com";
+            _config = config;
+            _currentBusiness = currentBusiness;
         }
+
+        // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
+        private string _frontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
 
         /// <summary>GET /api/loyalty/{clientId} - Resumen de puntos y nivel</summary>
         [HttpGet("{clientId}")]

@@ -5,10 +5,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models;
 
-public class Order
+public class Order : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este pedido.</summary>
+    public int BusinessId { get; set; }
 
     [Required]
     public int ClientId { get; set; }
@@ -80,10 +83,13 @@ public class Order
     public decimal BalanceDue => Total - AmountPaid;
 }
 
-public class OrderItem
+public class OrderItem : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de esta partida.</summary>
+    public int BusinessId { get; set; }
 
     [Required]
     public int OrderId { get; set; }
@@ -123,4 +129,4 @@ public enum OrderType
     Delivery = 0,
     PickUp = 1,
     POS_Tienda = 2
-}
+}

@@ -1,14 +1,35 @@
 using Microsoft.EntityFrameworkCore;
 using EntregasApi.Models;
+using EntregasApi.Services;
+using Microsoft.AspNetCore.DataProtection;
+using System.Linq.Expressions;
+using System.Security.Cryptography;
 
 namespace EntregasApi.Data;
 
 public class AppDbContext : DbContext
 {
+    private const int DefaultBusinessId = 1;
+    private readonly ICurrentTenant? _tenant;
+    private readonly IDataProtector? _mercadoPagoTokenProtector;
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    public AppDbContext(
+        DbContextOptions<AppDbContext> options,
+        ICurrentTenant tenant,
+        IDataProtectionProvider dataProtectionProvider) : base(options)
+    {
+        _tenant = tenant;
+        _mercadoPagoTokenProtector = dataProtectionProvider.CreateProtector("EntregasApi.Business.MercadoPagoAccessToken");
+    }
+
+    public int ActiveBusinessId => _tenant?.ActiveBusinessId ?? DefaultBusinessId;
+
     // Tablas existentes
-    public DbSet<User> Users => Set<User>();
+    public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<Business> Businesses => Set<Business>();
+    public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -45,6 +66,7 @@ public class AppDbContext : DbContext
     // Identidad multi-señal de clientas
     public DbSet<ClientAlias> ClientAliases => Set<ClientAlias>();
     public DbSet<ClientMergeAudit> ClientMergeAudits => Set<ClientMergeAudit>();
+    public DbSet<ClientClaimAudit> ClientClaimAudits => Set<ClientClaimAudit>();
 
     // Live Capture pipeline
     public DbSet<LiveSession> LiveSessions => Set<LiveSession>();
@@ -57,10 +79,82 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // --- UNIQUE CONSTRAINTS ---
-        modelBuilder.Entity<User>()
-            .HasIndex(u => u.Email)
-            .IsUnique();
+        modelBuilder.Entity<Account>(entity =>
+        {
+            entity.HasIndex(a => a.Phone)
+                  .IsUnique()
+                  .HasFilter("\"Phone\" IS NOT NULL");
+
+            entity.HasIndex(a => a.FacebookUserId)
+                  .IsUnique()
+                  .HasFilter("\"FacebookUserId\" IS NOT NULL");
+
+            entity.HasIndex(a => a.Email)
+                  .IsUnique()
+                  .HasFilter("\"Email\" IS NOT NULL");
+
+            entity.Property(a => a.CreatedAt)
+                  .HasDefaultValueSql("NOW()");
+
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_Accounts_IdentityMethod",
+                "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL"));
+        });
+
+        modelBuilder.Entity<Business>(entity =>
+        {
+            entity.HasIndex(b => b.Slug).IsUnique();
+
+            entity.Property(b => b.PlanTier)
+                  .HasDefaultValue("Entrada");
+
+            entity.Property(b => b.PendingPlanTier)
+                  .HasMaxLength(40);
+
+            entity.Property(b => b.SubscriptionStatus)
+                  .HasConversion<string>()
+                  .HasMaxLength(40)
+                  .HasDefaultValue(SubscriptionStatus.Active);
+
+            entity.Property(b => b.IsActive)
+                  .HasDefaultValue(true);
+
+            entity.Property(b => b.SubscriptionPeriodMonths)
+                  .HasDefaultValue(1);
+
+            entity.Property(b => b.CreatedAt)
+                  .HasDefaultValueSql("NOW()");
+
+            entity.Property(b => b.GeocodingRegion)
+                  .HasDefaultValue("Nuevo Laredo, Tamaulipas, MX");
+
+            entity.Property(b => b.BrandPrimaryColor)
+                  .HasDefaultValue("#6C4AE0");
+
+            entity.Property(b => b.MercadoPagoAccessToken)
+                  .HasConversion(
+                      token => ProtectMercadoPagoToken(token),
+                      token => UnprotectMercadoPagoToken(token));
+        });
+
+        modelBuilder.Entity<Membership>(entity =>
+        {
+            entity.HasIndex(m => new { m.AccountId, m.BusinessId })
+                  .IsUnique();
+
+            entity.Property(m => m.CreatedAt)
+                  .HasDefaultValueSql("NOW()");
+
+            entity.HasOne(m => m.Account)
+                  .WithMany(a => a.Memberships)
+                  .HasForeignKey(m => m.AccountId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.Business)
+                  .WithMany(b => b.Memberships)
+                  .HasForeignKey(m => m.BusinessId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<Order>()
             .HasIndex(o => o.AccessToken)
@@ -71,7 +165,7 @@ public class AppDbContext : DbContext
             .IsUnique();
 
         modelBuilder.Entity<Client>()
-            .HasIndex(c => c.Name)
+            .HasIndex(c => new { c.BusinessId, c.Name })
             .IsUnique();
 
         // Identidad multi-señal: campos normalizados + alias
@@ -88,16 +182,40 @@ public class AppDbContext : DbContext
                   .WithOne(a => a.Client!)
                   .HasForeignKey(a => a.ClientId)
                   .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(c => c.Account)
+                  .WithMany()
+                  .HasForeignKey(c => c.AccountId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(c => c.AccountId)
+                  .HasDatabaseName("IX_Clients_AccountId");
         });
 
         modelBuilder.Entity<ClientAlias>(entity =>
         {
-            entity.HasIndex(a => a.NormalizedAlias)
+            entity.HasIndex(a => new { a.BusinessId, a.NormalizedAlias })
                   .IsUnique()
                   .HasDatabaseName("IX_ClientAliases_NormalizedAlias");
 
             entity.HasIndex(a => a.ClientId)
                   .HasDatabaseName("IX_ClientAliases_ClientId");
+        });
+
+        modelBuilder.Entity<ClientClaimAudit>(entity =>
+        {
+            entity.HasIndex(a => new { a.AccountId, a.ClientId })
+                  .IsUnique()
+                  .HasDatabaseName("IX_ClientClaimAudits_Account_Client");
+
+            entity.HasIndex(a => a.AccountId)
+                  .HasDatabaseName("IX_ClientClaimAudits_AccountId");
+
+            entity.HasIndex(a => a.ClientId)
+                  .HasDatabaseName("IX_ClientClaimAudits_ClientId");
+
+            entity.Property(a => a.ClaimedAt)
+                  .HasDefaultValueSql("NOW()");
         });
 
         // Live Capture pipeline
@@ -162,8 +280,16 @@ public class AppDbContext : DbContext
                   .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<CashRegisterSession>(entity =>
+        {
+            entity.HasOne(s => s.Account)
+                  .WithMany()
+                  .HasForeignKey(s => s.AccountId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<Product>()
-            .HasIndex(p => p.SKU)
+            .HasIndex(p => new { p.BusinessId, p.SKU })
             .IsUnique();
         // Order -> Packages (1:N)
         modelBuilder.Entity<Order>()
@@ -243,13 +369,9 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.ClientId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // --- DATA SEEDING (Configuración inicial) ---
-        modelBuilder.Entity<AppSettings>().HasData(new AppSettings
-        {
-            Id = 1,
-            DefaultShippingCost = 60m,
-            LinkExpirationHours = 72
-        });
+        modelBuilder.Entity<AppSettings>()
+            .HasIndex(s => s.BusinessId)
+            .IsUnique();
 
         modelBuilder.Entity<FcmToken>(entity =>
         {
@@ -358,5 +480,87 @@ public class AppDbContext : DbContext
                   .HasForeignKey(d => d.WinnerId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
+
+        ApplyTenantOwnership(modelBuilder);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        StampTenantOwnedEntities();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        StampTenantOwnedEntities();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ApplyTenantOwnership(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes()
+                     .Where(t => typeof(ITenantOwned).IsAssignableFrom(t.ClrType)))
+        {
+            var entity = modelBuilder.Entity(entityType.ClrType);
+
+            entity.Property(nameof(ITenantOwned.BusinessId))
+                  .IsRequired()
+                  .HasDefaultValue(DefaultBusinessId);
+
+            entity.HasIndex(nameof(ITenantOwned.BusinessId));
+
+            entity.HasOne(typeof(Business), navigationName: null)
+                  .WithMany()
+                  .HasForeignKey(nameof(ITenantOwned.BusinessId))
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasQueryFilter(BuildTenantFilter(entityType.ClrType));
+        }
+    }
+
+    private LambdaExpression BuildTenantFilter(Type entityType)
+    {
+        var parameter = Expression.Parameter(entityType, "e");
+        var businessId = Expression.Property(parameter, nameof(ITenantOwned.BusinessId));
+        var activeBusinessId = Expression.Property(Expression.Constant(this), nameof(ActiveBusinessId));
+
+        return Expression.Lambda(Expression.Equal(businessId, activeBusinessId), parameter);
+    }
+
+    private void StampTenantOwnedEntities()
+    {
+        foreach (var entry in ChangeTracker.Entries<ITenantOwned>())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.BusinessId == 0)
+            {
+                entry.Entity.BusinessId = ActiveBusinessId;
+            }
+        }
+    }
+
+    private string? ProtectMercadoPagoToken(string? token)
+    {
+        return string.IsNullOrWhiteSpace(token) || _mercadoPagoTokenProtector is null
+            ? token
+            : _mercadoPagoTokenProtector.Protect(token);
+    }
+
+    private string? UnprotectMercadoPagoToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token) || _mercadoPagoTokenProtector is null)
+        {
+            return token;
+        }
+
+        try
+        {
+            return _mercadoPagoTokenProtector.Unprotect(token);
+        }
+        catch (CryptographicException)
+        {
+            return token;
+        }
     }
 }

@@ -14,10 +14,13 @@ public enum LoyaltyRewardType
 /// Catálogo de premios que las clientas pueden canjear con sus RegiPuntos.
 /// Editable: la dueña puede activar/desactivar o ajustar costos sin tocar código.
 /// </summary>
-public class LoyaltyReward
+public class LoyaltyReward : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de este catálogo de premios.</summary>
+    public int BusinessId { get; set; }
 
     [Required, MaxLength(120)]
     public string Name { get; set; } = string.Empty;

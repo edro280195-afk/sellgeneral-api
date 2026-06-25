@@ -7,12 +7,14 @@ public class GeocodingService : IGeocodingService
 {
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
+    private readonly ICurrentBusiness _currentBusiness;
     private readonly ILogger<GeocodingService> _logger;
 
-    public GeocodingService(IHttpClientFactory httpFactory, IConfiguration config, ILogger<GeocodingService> logger)
+    public GeocodingService(IHttpClientFactory httpFactory, IConfiguration config, ICurrentBusiness currentBusiness, ILogger<GeocodingService> logger)
     {
         _httpFactory = httpFactory;
         _config = config;
+        _currentBusiness = currentBusiness;
         _logger = logger;
     }
 
@@ -25,10 +27,11 @@ public class GeocodingService : IGeocodingService
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "dummy")
             return new GeocodeResult(false, null, null, null, "NO_API_KEY", "API key no configurada");
 
-        // Bias hacia Nuevo Laredo, MX
-        var biased = address.Contains("Nuevo Laredo", StringComparison.OrdinalIgnoreCase)
+        // Bias hacia la región del negocio activo (antes fijo a "Nuevo Laredo").
+        var region = (await _currentBusiness.GetAsync(ct)).GeocodingRegion;
+        var biased = string.IsNullOrWhiteSpace(region) || address.Contains(region, StringComparison.OrdinalIgnoreCase)
             ? address
-            : $"{address}, Nuevo Laredo, Tamaulipas, México";
+            : $"{address}, {region}";
 
         var url = $"https://maps.googleapis.com/maps/api/geocode/json?address={WebUtility.UrlEncode(biased)}&region=mx&language=es&key={apiKey}";
 

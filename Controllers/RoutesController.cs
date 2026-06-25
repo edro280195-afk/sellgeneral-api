@@ -12,7 +12,7 @@ namespace EntregasApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.RoutesAccess)]
 public class RoutesController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -24,8 +24,11 @@ public class RoutesController : ControllerBase
     private readonly IElevenLabsTtsService _tts;
     private readonly IRouteOptimizerService _optimizer;
     private readonly ILogger<RoutesController> _logger;
+    private readonly ICurrentTenant _tenant;
+    private readonly ICurrentBusiness _currentBusiness;
+    private readonly IEntitlementService _entitlements;
 
-    public RoutesController(AppDbContext db, ITokenService tokenService, IConfiguration config, IHubContext<DeliveryHub> hub, IPushNotificationService push, IGeminiService geminiService, IElevenLabsTtsService tts, IRouteOptimizerService optimizer, ILogger<RoutesController> logger)
+    public RoutesController(AppDbContext db, ITokenService tokenService, IConfiguration config, IHubContext<DeliveryHub> hub, IPushNotificationService push, IGeminiService geminiService, IElevenLabsTtsService tts, IRouteOptimizerService optimizer, ILogger<RoutesController> logger, ICurrentTenant tenant, ICurrentBusiness currentBusiness, IEntitlementService entitlements)
     {
         _db = db;
         _tokenService = tokenService;
@@ -36,9 +39,23 @@ public class RoutesController : ControllerBase
         _tts = tts;
         _optimizer = optimizer;
         _logger = logger;
+        _tenant = tenant;
+        _currentBusiness = currentBusiness;
+        _entitlements = entitlements;
     }
 
-    private string FrontendUrl => _config["App:FrontendUrl"] ?? "http://localhost:4200";
+    /// <summary>Dominio público del negocio activo (antes el fijo App:FrontendUrl).</summary>
+    private async Task<string> FrontendUrlAsync()
+        => ((await _currentBusiness.GetAsync()).FrontendUrl ?? _config["App:FrontendUrl"] ?? "http://localhost:4200").TrimEnd('/');
+
+    /// <summary>Depot/centro de ruta del negocio activo (antes el fijo Cami:RouteCenter).</summary>
+    private async Task<(double lat, double lng)> DepotCenterAsync()
+    {
+        var b = await _currentBusiness.GetAsync();
+        var lat = b.DepotLat != 0 ? b.DepotLat : _config.GetValue<double>("Cami:RouteCenterLat", 27.4861);
+        var lng = b.DepotLng != 0 ? b.DepotLng : _config.GetValue<double>("Cami:RouteCenterLng", -99.5069);
+        return (lat, lng);
+    }
 
     /// <summary>POST /api/routes - Crear ruta con órdenes y/o tandas seleccionadas. Optimiza localmente por coordenadas.</summary>
     [HttpPost]
@@ -61,6 +78,17 @@ public class RoutesController : ControllerBase
             });
         }
 
+        var activeDriverCount = await _db.DeliveryRoutes.CountAsync(r =>
+            r.Status == RouteStatus.Pending || r.Status == RouteStatus.Active);
+        try
+        {
+            await _entitlements.EnsureWithinLimitAsync(LimitKey.MaxDrivers, activeDriverCount);
+        }
+        catch (EntitlementLimitExceededException ex)
+        {
+            return EntitlementPaymentRequired(ex);
+        }
+
         // Resolver coordenadas: stops para el optimizer
         var allStops = new List<RouteStop>();
         foreach (var o in orders)
@@ -80,10 +108,7 @@ public class RoutesController : ControllerBase
         }
         else
         {
-            var center = (
-                lat: _config.GetValue<double>("Cami:RouteCenterLat", 27.4861),
-                lng: _config.GetValue<double>("Cami:RouteCenterLng", -99.5069)
-            );
+            var center = await DepotCenterAsync();
             var optimized = await _optimizer.OptimizeAsync(allStops, center.lat, center.lng);
             orderedIds = optimized.OrderedStopIds;
         }
@@ -201,8 +226,9 @@ public class RoutesController : ControllerBase
         foreach (var p in tandas)
             allStops.Add(new RouteStop($"tanda:{p.Id}", p.Client?.Latitude, p.Client?.Longitude));
 
-        var centerLat = req.StartLat ?? _config.GetValue<double>("Cami:RouteCenterLat", 27.4861);
-        var centerLng = req.StartLng ?? _config.GetValue<double>("Cami:RouteCenterLng", -99.5069);
+        var depot = await DepotCenterAsync();
+        var centerLat = req.StartLat ?? depot.lat;
+        var centerLng = req.StartLng ?? depot.lng;
 
         var optimized = await _optimizer.OptimizeAsync(allStops, centerLat, centerLng);
 
@@ -402,10 +428,11 @@ public class RoutesController : ControllerBase
             .ToListAsync();
 
         // 3. Mapear a DTOs en memoria sin más llamadas a DB
+        var frontendUrl = await FrontendUrlAsync();
         var result = routes.Select(route => new RouteDto(
             Id: route.Id,
             DriverToken: route.DriverToken,
-            DriverLink: $"{FrontendUrl}/repartidor/{route.DriverToken}",
+            DriverLink: $"{frontendUrl}/repartidor/{route.DriverToken}",
             Status: route.Status.ToString(),
             CreatedAt: route.CreatedAt,
             StartedAt: route.StartedAt,
@@ -572,7 +599,7 @@ public class RoutesController : ControllerBase
             deliveryRouteId = msg.DeliveryRouteId
         };
 
-        await _hub.Clients.Group($"Route_{route.DriverToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken))
             .SendAsync("ReceiveChatMessage", msgDto);
 
         return Ok(msgDto);
@@ -633,11 +660,11 @@ public class RoutesController : ControllerBase
             deliveryId = msg.DeliveryId
         };
 
-        await _hub.Clients.Group($"Order_{delivery.Order.AccessToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, delivery.Order.AccessToken))
             .SendAsync("ReceiveClientChatMessage", msgDto);
-        await _hub.Clients.Group($"Route_{route.DriverToken}")
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken))
             .SendAsync("ReceiveClientChatMessage", msgDto);
-        await _hub.Clients.Group("Admins")
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId))
             .SendAsync("ReceiveClientChatMessage", msgDto);
 
         return Ok(msgDto);
@@ -664,7 +691,7 @@ public class RoutesController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated");
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated");
         await _push.BroadcastToAllDriversAsync("🔄 Ruta reordenada", $"El orden de entregas de {route.Name} fue actualizado.");
 
         return Ok(new { Message = "Orden actualizado correctamente" });
@@ -702,7 +729,7 @@ public class RoutesController : ControllerBase
         if (!string.IsNullOrEmpty(route.DriverToken))
         {
             await _push.NotifyDriverFcmAsync(route.DriverToken, route.Name ?? "Ruta actualizada", $"Se agregaron entregas. Nueva cuenta: {route.Deliveries.Count + 1}", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
-            await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+            await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
         }
 
         await OptimizeRouteInternal(id, lat, lng);
@@ -745,7 +772,7 @@ public class RoutesController : ControllerBase
             await _push.NotifyDriverFcmAsync(route.DriverToken, route.Name ?? "Ruta actualizada",
                 $"Se agregó una tanda. Nueva cuenta: {route.Deliveries.Count + 1}",
                 new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
-            await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+            await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
         }
 
         await OptimizeRouteInternal(id, lat, lng);
@@ -801,8 +828,9 @@ public class RoutesController : ControllerBase
         if (!route.Deliveries.Any()) return;
         if (route.Status == RouteStatus.Completed) return;
 
-        var lat = startLat ?? _config.GetValue<double>("Cami:RouteCenterLat", 27.4861);
-        var lng = startLng ?? _config.GetValue<double>("Cami:RouteCenterLng", -99.5069);
+        var depot = await DepotCenterAsync();
+        var lat = startLat ?? depot.lat;
+        var lng = startLng ?? depot.lng;
 
         var deliveryById = route.Deliveries.ToDictionary(d => StopIdFor(d), d => d);
         var stops = route.Deliveries.Select(d =>
@@ -820,11 +848,25 @@ public class RoutesController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
-        await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
     }
 
     private static string StopIdFor(Delivery d) =>
         d.Kind == DeliveryKind.Tanda ? $"tanda:{d.TandaParticipantId}" : $"order:{d.OrderId}";
+
+    private static ObjectResult EntitlementPaymentRequired(EntitlementLimitExceededException ex)
+    {
+        return new ObjectResult(new
+        {
+            error = "feature_locked",
+            feature = ex.LimitKey.ToString(),
+            requiredPlan = ex.RequiredPlan,
+            limit = ex.Limit
+        })
+        {
+            StatusCode = StatusCodes.Status402PaymentRequired
+        };
+    }
 
     [HttpDelete("{id}/remove-order/{orderId}")]
     public async Task<IActionResult> RemoveOrderFromRoute(int id, int orderId)
@@ -841,7 +883,7 @@ public class RoutesController : ControllerBase
         _db.Deliveries.Remove(delivery);
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
         await _push.BroadcastToAllDriversAsync("📦 Pedido eliminado de ruta", $"Se eliminó un pedido de {route.Name}.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
 
         return Ok(new { Message = "Orden eliminada de la ruta correctamente" });
@@ -860,7 +902,7 @@ public class RoutesController : ControllerBase
         _db.Deliveries.Remove(delivery);
         await _db.SaveChangesAsync();
 
-        await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+        await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
         await _push.BroadcastToAllDriversAsync("✨ Tanda eliminada de ruta",
             $"Se eliminó una tanda de {route.Name}.",
             new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
@@ -1064,8 +1106,9 @@ public class RoutesController : ControllerBase
 
             if (pendingToOptimize.Count > 0)
             {
-                var centerLat = _config.GetValue<double>("Cami:RouteCenterLat", 27.4861);
-                var centerLng = _config.GetValue<double>("Cami:RouteCenterLng", -99.5069);
+                var depot = await DepotCenterAsync();
+                var centerLat = depot.lat;
+                var centerLng = depot.lng;
                 var stops = pendingToOptimize.Select(d =>
                 {
                     var client = d.Kind == DeliveryKind.Tanda ? d.TandaParticipant?.Client : d.Order?.Client;
@@ -1082,7 +1125,7 @@ public class RoutesController : ControllerBase
 
             try
             {
-                await _hub.Clients.Group($"Route_{route.DriverToken}").SendAsync("RouteUpdated", new { id = route.Id });
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
                 await _push.BroadcastToAllDriversAsync("🔄 Ruta actualizada", $"{route.Name} fue recompuesta.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Error notificando recompose"); }
@@ -1123,10 +1166,11 @@ public class RoutesController : ControllerBase
             .Select(e => new DriverExpenseDto(e.Id, e.DeliveryRouteId, null, e.Amount, e.ExpenseType, e.Date, e.Notes, e.EvidencePath, e.CreatedAt))
             .ToListAsync();
 
+        var frontendUrl = await FrontendUrlAsync();
         return new RouteDto(
             Id: route.Id,
             DriverToken: route.DriverToken,
-            DriverLink: $"{FrontendUrl}/repartidor/{route.DriverToken}",
+            DriverLink: $"{frontendUrl}/repartidor/{route.DriverToken}",
             Status: route.Status.ToString(),
             CreatedAt: route.CreatedAt,
             StartedAt: route.StartedAt,
@@ -1180,7 +1224,7 @@ public class RoutesController : ControllerBase
 
             try
             {
-                await _hub.Clients.Group($"Route_{driverToken}").SendAsync("RouteDeleted", new { Message = $"La ruta '{routeName}' fue eliminada por el administrador." });
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("RouteDeleted", new { Message = $"La ruta '{routeName}' fue eliminada por el administrador." });
                 await _push.BroadcastToAllDriversAsync("🚫 Ruta cancelada", $"La ruta {routeName} fue eliminada.");
             }
             catch { }

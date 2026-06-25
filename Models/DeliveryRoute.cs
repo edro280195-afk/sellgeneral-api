@@ -2,10 +2,13 @@ using System.ComponentModel.DataAnnotations;
 
 namespace EntregasApi.Models;
 
-public class DeliveryRoute
+public class DeliveryRoute : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de esta ruta.</summary>
+    public int BusinessId { get; set; }
 
     /// <summary>Nombre descriptivo (ej: "Ruta Norte - Matutina")</summary>
     [MaxLength(100)]

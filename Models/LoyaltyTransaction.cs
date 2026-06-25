@@ -1,11 +1,14 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models
 {
-    public class LoyaltyTransaction
+    public class LoyaltyTransaction : ITenantOwned
     {
         public int Id { get; set; }
+
+        /// <summary>Negocio (tenant) dueno de esta transaccion.</summary>
+        public int BusinessId { get; set; }
 
         public int ClientId { get; set; }
 

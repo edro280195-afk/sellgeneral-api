@@ -8,12 +8,12 @@ namespace EntregasApi.Services
     public class ExpenseService : IExpenseService
     {
         private readonly AppDbContext _db;
-        private readonly IWebHostEnvironment _env;
+        private readonly ICloudinaryService _cloudinary;
 
-        public ExpenseService(AppDbContext db, IWebHostEnvironment env)
+        public ExpenseService(AppDbContext db, ICloudinaryService cloudinary)
         {
             _db = db;
-            _env = env;
+            _cloudinary = cloudinary;
         }
 
         // ═══════════════════════════════════════════
@@ -227,22 +227,17 @@ namespace EntregasApi.Services
 
         private async Task<string> SaveExpensePhoto(IFormFile photo, int routeId)
         {
-            var uploadDir = Path.Combine(_env.ContentRootPath, "uploads", "expenses");
-            Directory.CreateDirectory(uploadDir);
-
-            var fileName = $"r{routeId}_{Guid.NewGuid():N}{Path.GetExtension(photo.FileName)}";
-            var filePath = Path.Combine(uploadDir, fileName);
-
-            using var stream = new FileStream(filePath, FileMode.Create);
-            await photo.CopyToAsync(stream);
-
-            return $"expenses/{fileName}";
+            // Toda evidencia va a Cloudinary (carpeta por tenant {slug}/expenses); ya no a disco local.
+            using var stream = photo.OpenReadStream();
+            return await _cloudinary.UploadAsync(stream, photo.FileName, "expenses");
         }
 
         private static string? BuildEvidenceUrl(string? path)
         {
-            if (string.IsNullOrEmpty(path)) return null;
-            return $"/uploads/{path}";
+            // Las evidencias nuevas se guardan como URL absoluta de Cloudinary, así que se
+            // devuelven tal cual. Las legacy con ruta local se rescatan en la migración
+            // (el sistema nuevo ya no sirve /uploads).
+            return string.IsNullOrEmpty(path) ? null : path;
         }
 
         /// <summary>

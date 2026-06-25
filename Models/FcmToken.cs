@@ -4,10 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EntregasApi.Models;
 
 [Table("FcmTokens")]
-public class FcmToken
+public class FcmToken : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueño de este token.</summary>
+    public int BusinessId { get; set; }
 
     /// <summary>Token FCM único del dispositivo Android</summary>
     [Required]

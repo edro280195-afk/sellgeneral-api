@@ -2,9 +2,12 @@ using System.ComponentModel.DataAnnotations;
 
 namespace EntregasApi.Models;
 
-public class LiveCommentOrder
+public class LiveCommentOrder : ITenantOwned
 {
     public int Id { get; set; }
+
+    /// <summary>Negocio (tenant) dueno de este comentario detectado.</summary>
+    public int BusinessId { get; set; }
 
     public int LiveSessionId { get; set; }
     public LiveSession? LiveSession { get; set; }

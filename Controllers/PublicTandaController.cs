@@ -22,6 +22,7 @@ public class PublicTandaController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IHubContext<DeliveryHub> _hub;
     private readonly IPushNotificationService _push;
+    private readonly ICurrentTenant _tenant;
 
     public PublicTandaController(
         ITandaService tandaService, 
@@ -29,7 +30,8 @@ public class PublicTandaController : ControllerBase
         IConfiguration config, 
         IHttpClientFactory httpClientFactory,
         IHubContext<DeliveryHub> hub,
-        IPushNotificationService push)
+        IPushNotificationService push,
+        ICurrentTenant tenant)
     {
         _tandaService = tandaService;
         _db = db;
@@ -37,6 +39,7 @@ public class PublicTandaController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _hub = hub;
         _push = push;
+        _tenant = tenant;
     }
 
     [HttpGet("{token}")]
@@ -125,7 +128,7 @@ public class PublicTandaController : ControllerBase
 
                 // Notificar a Admins
                 var clientName = participant.Client?.Name ?? "Participante";
-                await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new {
+                await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
                     TandaId = tanda.Id,
                     ParticipantName = clientName,
                     Amount = tanda.WeeklyAmount,

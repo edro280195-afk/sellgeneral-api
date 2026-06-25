@@ -19,13 +19,23 @@ public class ClientViewController : ControllerBase
     private readonly IHubContext<DeliveryHub> _hub;
     private readonly IPushNotificationService _push;
     private readonly ICamiService _cami;
+    private readonly ICurrentTenant _tenant;
+    private readonly ICurrentBusiness _currentBusiness;
 
-    public ClientViewController(AppDbContext db, IHubContext<DeliveryHub> hub, IPushNotificationService push, ICamiService cami)
+    public ClientViewController(
+        AppDbContext db,
+        IHubContext<DeliveryHub> hub,
+        IPushNotificationService push,
+        ICamiService cami,
+        ICurrentTenant tenant,
+        ICurrentBusiness currentBusiness)
     {
         _db = db;
         _hub = hub;
         _push = push;
         _cami = cami;
+        _tenant = tenant;
+        _currentBusiness = currentBusiness;
     }
 
     /// <summary>GET /api/pedido/{token} - Vista pública del pedido</summary>
@@ -180,7 +190,7 @@ public class ClientViewController : ControllerBase
             order.Status = Models.OrderStatus.Confirmed;
             await _db.SaveChangesAsync();
 
-            await _hub.Clients.Group("Admins").SendAsync("OrderConfirmed", new
+            await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("OrderConfirmed", new
             {
                 OrderId = order.Id,
                 ClientName = order.Client?.Name ?? "Clienta",
@@ -264,7 +274,7 @@ public class ClientViewController : ControllerBase
         };
 
         // Notificamos a los Administradores (Siempre)
-        await _hub.Clients.Group("Admins")
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId))
             .SendAsync("ReceiveClientChatMessage", msgDto);
 
         // Si hay una ruta activa, notificamos al repartidor
@@ -273,7 +283,7 @@ public class ClientViewController : ControllerBase
             var route = await _db.DeliveryRoutes.FindAsync(order.DeliveryRouteId.Value);
             if (route != null)
             {
-                await _hub.Clients.Group($"Route_{route.DriverToken}")
+                await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken))
                     .SendAsync("ReceiveClientChatMessage", msgDto);
             }
         }
@@ -337,7 +347,7 @@ public class ClientViewController : ControllerBase
         {
             transaction_amount = balanceDue,
             token = req.CardToken,
-            description = $"Pedido #{order.Id} - Regi Bazar",
+            description = $"Pedido #{order.Id} - {_currentBusiness.Current.Name}",
             installments = req.Installments,
             payment_method_id = req.PaymentMethodId,
             issuer_id = issuerId,
@@ -419,7 +429,7 @@ public class ClientViewController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            await _hub.Clients.Group("Admins").SendAsync("DeliveryUpdate", new
+            await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new
             {
                 OrderId = order.Id,
                 Status = order.Status.ToString(),

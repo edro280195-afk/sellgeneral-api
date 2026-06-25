@@ -22,6 +22,63 @@ namespace EntregasApi.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("EntregasApi.Models.Account", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("FacebookUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ProfilePhotoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasFilter("\"Email\" IS NOT NULL");
+
+                    b.HasIndex("FacebookUserId")
+                        .IsUnique()
+                        .HasFilter("\"FacebookUserId\" IS NOT NULL");
+
+                    b.HasIndex("Phone")
+                        .IsUnique()
+                        .HasFilter("\"Phone\" IS NOT NULL");
+
+                    b.ToTable("Accounts", t =>
+                        {
+                            t.HasCheckConstraint("CK_Accounts_IdentityMethod", "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL");
+                        });
+                });
+
             modelBuilder.Entity("EntregasApi.Models.AppSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -29,6 +86,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<decimal>("DefaultShippingCost")
                         .HasColumnType("numeric");
@@ -38,15 +100,138 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AppSettings");
+                    b.HasIndex("BusinessId")
+                        .IsUnique();
 
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            DefaultShippingCost = 60m,
-                            LinkExpirationHours = 72
-                        });
+                    b.ToTable("AppSettings");
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.Business", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BannerUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("BrandAccentColor")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("BrandPrimaryColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<DateTime?>("CancellationEffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<DateTime?>("CurrentPeriodEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("DepotLat")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("DepotLng")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("FrontendUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("GeminiBusinessName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("GeocodingRegion")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasDefaultValue("Nuevo Laredo, Tamaulipas, MX");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("MercadoPagoAccessToken")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("PayerEmail")
+                        .HasMaxLength(180)
+                        .HasColumnType("character varying(180)");
+
+                    b.Property<DateTime?>("PendingPlanEffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PendingPlanTier")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PlanTier")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Entrada");
+
+                    b.Property<string>("PreapprovalId")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("PreapprovalStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SubscriptionPeriodMonths")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<string>("SubscriptionStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Active");
+
+                    b.Property<DateTime?>("TrialEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Businesses");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.CashRegisterSession", b =>
@@ -56,6 +241,14 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime?>("ClosingTime")
                         .HasColumnType("timestamp with time zone");
@@ -75,12 +268,11 @@ namespace EntregasApi.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("BusinessId");
 
                     b.ToTable("CashRegisterSessions");
                 });
@@ -127,9 +319,17 @@ namespace EntregasApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AccountId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Address")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -183,11 +383,16 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
-                        .IsUnique();
+                    b.HasIndex("AccountId")
+                        .HasDatabaseName("IX_Clients_AccountId");
+
+                    b.HasIndex("BusinessId");
 
                     b.HasIndex("NormalizedPhone")
                         .HasDatabaseName("IX_Clients_NormalizedPhone");
+
+                    b.HasIndex("BusinessId", "Name")
+                        .IsUnique();
 
                     b.ToTable("Clients");
                 });
@@ -204,6 +409,11 @@ namespace EntregasApi.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<int>("ClientId")
                         .HasColumnType("integer");
@@ -223,14 +433,60 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ClientId")
                         .HasDatabaseName("IX_ClientAliases_ClientId");
 
-                    b.HasIndex("NormalizedAlias")
+                    b.HasIndex("BusinessId", "NormalizedAlias")
                         .IsUnique()
                         .HasDatabaseName("IX_ClientAliases_NormalizedAlias");
 
                     b.ToTable("ClientAliases");
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.ClientClaimAudit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BusinessId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ClaimedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<int>("ClientId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .HasDatabaseName("IX_ClientClaimAudits_AccountId");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("IX_ClientClaimAudits_ClientId");
+
+                    b.HasIndex("AccountId", "ClientId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ClientClaimAudits_Account_Client");
+
+                    b.ToTable("ClientClaimAudits");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ClientMergeAudit", b =>
@@ -292,6 +548,11 @@ namespace EntregasApi.Migrations
                     b.Property<DateTime?>("ArrivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<DateTime?>("DeliveredAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -333,6 +594,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("DeliveryRouteId");
 
                     b.HasIndex("OrderId")
@@ -354,6 +617,11 @@ namespace EntregasApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -370,6 +638,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("DeliveryId");
 
                     b.ToTable("DeliveryEvidences");
@@ -382,6 +652,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
@@ -419,6 +694,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("DriverToken")
                         .IsUnique();
 
@@ -435,6 +712,11 @@ namespace EntregasApi.Migrations
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(12,2)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -461,6 +743,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("Date");
 
                     b.HasIndex("DeliveryRouteId");
@@ -475,6 +759,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -504,6 +793,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("DriverRouteToken");
 
                     b.HasIndex("Role");
@@ -524,6 +815,11 @@ namespace EntregasApi.Migrations
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(12,2)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -551,6 +847,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("Date");
 
                     b.HasIndex("SalesPeriodId");
@@ -567,6 +865,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("ClientNameSpoken")
                         .HasMaxLength(200)
@@ -608,6 +911,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("LiveProductId");
 
                     b.HasIndex("LiveSessionId");
@@ -624,6 +929,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("CommentDisplayName")
                         .IsRequired()
@@ -646,6 +956,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("LiveSessionId");
 
                     b.ToTable("LiveCommentOrders");
@@ -661,6 +973,11 @@ namespace EntregasApi.Migrations
 
                     b.Property<double?>("AnnouncedAtSeconds")
                         .HasColumnType("double precision");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("Description")
                         .HasMaxLength(300)
@@ -679,6 +996,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("LiveSessionId");
 
                     b.ToTable("LiveProducts");
@@ -691,6 +1010,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<double?>("DurationSeconds")
                         .HasColumnType("double precision");
@@ -730,6 +1054,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.ToTable("LiveSessions");
                 });
 
@@ -740,6 +1066,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("ClientNameSpoken")
                         .IsRequired()
@@ -759,6 +1090,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("LiveSessionId");
 
                     b.ToTable("LiveSpokenOrders");
@@ -771,6 +1104,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("Description")
                         .HasMaxLength(300)
@@ -802,6 +1140,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.ToTable("LoyaltyRewards");
                 });
 
@@ -812,6 +1152,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<int>("ClientId")
                         .HasColumnType("integer");
@@ -829,9 +1174,43 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ClientId");
 
                     b.ToTable("LoyaltyTransactions");
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.Membership", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BusinessId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("AccountId", "BusinessId")
+                        .IsUnique();
+
+                    b.ToTable("Memberships");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Order", b =>
@@ -852,6 +1231,11 @@ namespace EntregasApi.Migrations
 
                     b.Property<string>("AlternativeAddress")
                         .HasColumnType("text");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<int>("ClientId")
                         .HasColumnType("integer");
@@ -927,6 +1311,8 @@ namespace EntregasApi.Migrations
                     b.HasIndex("AccessToken")
                         .IsUnique();
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ClientId");
 
                     b.HasIndex("DeliveryRouteId");
@@ -943,6 +1329,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<decimal>("LineTotal")
                         .HasColumnType("decimal(10,2)");
@@ -966,6 +1357,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
@@ -978,6 +1371,11 @@ namespace EntregasApi.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1007,6 +1405,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("OrderId");
 
                     b.HasIndex("QrCodeValue")
@@ -1025,6 +1425,11 @@ namespace EntregasApi.Migrations
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(10,2)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<int?>("CashRegisterSessionId")
                         .HasColumnType("integer");
@@ -1051,6 +1456,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("CashRegisterSessionId");
 
                     b.HasIndex("Date");
@@ -1067,6 +1474,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1089,7 +1501,9 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SKU")
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("BusinessId", "SKU")
                         .IsUnique();
 
                     b.ToTable("Products");
@@ -1107,6 +1521,11 @@ namespace EntregasApi.Migrations
                         .IsRequired()
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<int?>("ClientId")
                         .HasColumnType("integer");
@@ -1142,6 +1561,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("Endpoint")
                         .IsUnique();
 
@@ -1174,6 +1595,12 @@ namespace EntregasApi.Migrations
                     b.Property<bool>("AutoDraw")
                         .HasColumnType("boolean")
                         .HasColumnName("auto_draw");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<string>("ClientSegmentFilter")
                         .IsRequired()
@@ -1349,6 +1776,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("PrizeProductId");
 
                     b.HasIndex("RaffleDate");
@@ -1368,6 +1797,12 @@ namespace EntregasApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<DateTime>("DrawDate")
                         .HasColumnType("timestamp with time zone")
@@ -1402,6 +1837,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("DrawDate");
 
                     b.HasIndex("RaffleId");
@@ -1417,6 +1854,12 @@ namespace EntregasApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<int>("ClientId")
                         .HasColumnType("integer")
@@ -1435,6 +1878,8 @@ namespace EntregasApi.Migrations
                         .HasColumnName("raffle_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
 
                     b.HasIndex("ClientId");
 
@@ -1455,6 +1900,12 @@ namespace EntregasApi.Migrations
                     b.Property<int?>("AssignedTandaTurn")
                         .HasColumnType("integer")
                         .HasColumnName("assigned_tanda_turn");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<int>("ClientId")
                         .HasColumnType("integer")
@@ -1502,6 +1953,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ClientId");
 
                     b.HasIndex("RaffleId", "ClientId")
@@ -1518,6 +1971,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1538,6 +1996,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("IsActive");
 
                     b.ToTable("SalesPeriods");
@@ -1550,6 +2010,11 @@ namespace EntregasApi.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("ContactName")
                         .HasMaxLength(200)
@@ -1580,6 +2045,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("Name");
 
                     b.ToTable("Suppliers");
@@ -1597,6 +2064,12 @@ namespace EntregasApi.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("access_token");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1636,6 +2109,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ProductId");
 
                     b.ToTable("tandas");
@@ -1651,6 +2126,12 @@ namespace EntregasApi.Migrations
                     b.Property<int>("AssignedTurn")
                         .HasColumnType("integer")
                         .HasColumnName("assigned_turn");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<int>("CustomerId")
                         .HasColumnType("integer")
@@ -1685,6 +2166,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("TandaId", "AssignedTurn")
@@ -1704,6 +2187,12 @@ namespace EntregasApi.Migrations
                     b.Property<decimal>("AmountPaid")
                         .HasColumnType("decimal(12, 2)")
                         .HasColumnName("amount_paid");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<bool>("IsVerified")
                         .HasColumnType("boolean")
@@ -1731,6 +2220,8 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.HasIndex("ParticipantId");
 
                     b.ToTable("payments");
@@ -1746,6 +2237,12 @@ namespace EntregasApi.Migrations
                     b.Property<decimal>("BasePrice")
                         .HasColumnType("decimal(12, 2)")
                         .HasColumnName("base_price");
+
+                    b.Property<int>("BusinessId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("business_id");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1767,56 +2264,35 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId");
+
                     b.ToTable("products");
                 });
 
-            modelBuilder.Entity("EntregasApi.Models.User", b =>
+            modelBuilder.Entity("EntregasApi.Models.AppSettings", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("Rol");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Email")
-                        .IsUnique();
-
-                    b.ToTable("Users");
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("EntregasApi.Models.CashRegisterSession", b =>
                 {
-                    b.HasOne("EntregasApi.Models.User", "User")
+                    b.HasOne("EntregasApi.Models.Account", "Account")
                         .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("User");
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Account");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ChatMessage", b =>
@@ -1836,8 +2312,30 @@ namespace EntregasApi.Migrations
                     b.Navigation("DeliveryRoute");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.Client", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Account", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+                });
+
             modelBuilder.Entity("EntregasApi.Models.ClientAlias", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany("Aliases")
                         .HasForeignKey("ClientId")
@@ -1849,6 +2347,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.Delivery", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.DeliveryRoute", "DeliveryRoute")
                         .WithMany("Deliveries")
                         .HasForeignKey("DeliveryRouteId")
@@ -1873,6 +2377,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.DeliveryEvidence", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Delivery", "Delivery")
                         .WithMany("Evidences")
                         .HasForeignKey("DeliveryId")
@@ -1882,8 +2392,23 @@ namespace EntregasApi.Migrations
                     b.Navigation("Delivery");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.DeliveryRoute", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.DriverExpense", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.DeliveryRoute", "DeliveryRoute")
                         .WithMany()
                         .HasForeignKey("DeliveryRouteId")
@@ -1893,8 +2418,23 @@ namespace EntregasApi.Migrations
                     b.Navigation("DeliveryRoute");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.FcmToken", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.Investment", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.SalesPeriod", "SalesPeriod")
                         .WithMany("Investments")
                         .HasForeignKey("SalesPeriodId")
@@ -1913,6 +2453,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.LiveCandidate", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.LiveProduct", "LiveProduct")
                         .WithMany("Candidates")
                         .HasForeignKey("LiveProductId")
@@ -1937,6 +2483,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.LiveCommentOrder", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.LiveSession", "LiveSession")
                         .WithMany()
                         .HasForeignKey("LiveSessionId")
@@ -1948,6 +2500,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.LiveProduct", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.LiveSession", "LiveSession")
                         .WithMany("Products")
                         .HasForeignKey("LiveSessionId")
@@ -1957,8 +2515,23 @@ namespace EntregasApi.Migrations
                     b.Navigation("LiveSession");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.LiveSession", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.LiveSpokenOrder", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.LiveSession", "LiveSession")
                         .WithMany()
                         .HasForeignKey("LiveSessionId")
@@ -1968,8 +2541,23 @@ namespace EntregasApi.Migrations
                     b.Navigation("LiveSession");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.LoyaltyReward", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.LoyaltyTransaction", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany()
                         .HasForeignKey("ClientId")
@@ -1979,8 +2567,33 @@ namespace EntregasApi.Migrations
                     b.Navigation("Client");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.Membership", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Account", "Account")
+                        .WithMany("Memberships")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EntregasApi.Models.Business", "Business")
+                        .WithMany("Memberships")
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+
+                    b.Navigation("Business");
+                });
+
             modelBuilder.Entity("EntregasApi.Models.Order", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany("Orders")
                         .HasForeignKey("ClientId")
@@ -2005,6 +2618,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.OrderItem", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Order", "Order")
                         .WithMany("Items")
                         .HasForeignKey("OrderId")
@@ -2022,6 +2641,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.OrderPackage", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Order", "Order")
                         .WithMany("Packages")
                         .HasForeignKey("OrderId")
@@ -2033,6 +2658,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.OrderPayment", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.CashRegisterSession", "CashRegisterSession")
                         .WithMany("Payments")
                         .HasForeignKey("CashRegisterSessionId")
@@ -2049,8 +2680,32 @@ namespace EntregasApi.Migrations
                     b.Navigation("Order");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.Product", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.PushSubscriptionModel", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.Raffle", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.TandaProduct", "PrizeProduct")
                         .WithMany()
                         .HasForeignKey("PrizeProductId")
@@ -2075,6 +2730,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.RaffleDraw", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Raffle", "Raffle")
                         .WithMany("Draws")
                         .HasForeignKey("RaffleId")
@@ -2093,6 +2754,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.RaffleEntry", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany()
                         .HasForeignKey("ClientId")
@@ -2120,6 +2787,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.RaffleParticipant", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany()
                         .HasForeignKey("ClientId")
@@ -2137,8 +2810,32 @@ namespace EntregasApi.Migrations
                     b.Navigation("Raffle");
                 });
 
+            modelBuilder.Entity("EntregasApi.Models.SalesPeriod", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.Supplier", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("EntregasApi.Models.Tanda", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.TandaProduct", "Product")
                         .WithMany()
                         .HasForeignKey("ProductId")
@@ -2150,6 +2847,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.TandaParticipant", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.Client", "Client")
                         .WithMany()
                         .HasForeignKey("CustomerId")
@@ -2169,6 +2872,12 @@ namespace EntregasApi.Migrations
 
             modelBuilder.Entity("EntregasApi.Models.TandaPayment", b =>
                 {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EntregasApi.Models.TandaParticipant", "Participant")
                         .WithMany("Payments")
                         .HasForeignKey("ParticipantId")
@@ -2176,6 +2885,25 @@ namespace EntregasApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Participant");
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.TandaProduct", b =>
+                {
+                    b.HasOne("EntregasApi.Models.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.Account", b =>
+                {
+                    b.Navigation("Memberships");
+                });
+
+            modelBuilder.Entity("EntregasApi.Models.Business", b =>
+                {
+                    b.Navigation("Memberships");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.CashRegisterSession", b =>

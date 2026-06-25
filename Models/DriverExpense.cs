@@ -1,12 +1,16 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models
 {
-    public class DriverExpense
+    public class DriverExpense : ITenantOwned
     {
         [Key]
         public int Id { get; set; }
+
+        /// <summary>Negocio (tenant) dueno de este gasto.</summary>
+        public int BusinessId { get; set; }
+
         [Required]
         public int? DeliveryRouteId { get; set; }
         [ForeignKey(nameof(DeliveryRouteId))]

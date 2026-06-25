@@ -6,7 +6,7 @@ public interface IPosService
 {
     Task<Order> ScanItemAsync(int orderId, string sku);
     Task<Order> RemoveItemAsync(int orderItemId);
-    Task<CashRegisterSession> OpenSessionAsync(int userId, decimal initialCash);
+    Task<CashRegisterSession> OpenSessionAsync(int accountId, decimal initialCash);
     Task<CashRegisterSession> CloseSessionAsync(int sessionId, decimal actualCash);
     Task<CashRegisterSession?> GetActiveSessionAsync();
     Task<List<Order>> GetPendingOrdersAsync();

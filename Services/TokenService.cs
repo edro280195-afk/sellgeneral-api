@@ -1,14 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
+using EntregasApi.Models;
 using Microsoft.IdentityModel.Tokens;
 
 namespace EntregasApi.Services;
 
 public interface ITokenService
 {
-    string GenerateJwt(int userId, string email, string name);
+    string GenerateJwt(Account account, IEnumerable<Membership> memberships);
     string GenerateAccessToken();
 }
 
@@ -21,18 +21,29 @@ public class TokenService : ITokenService
         _config = config;
     }
 
-    public string GenerateJwt(int userId, string email, string name)
+    public string GenerateJwt(Account account, IEnumerable<Membership> memberships)
     {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
+        var key = JwtSigningKey.FromConfiguration(_config);
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var accountId = account.Id.ToString();
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-            new Claim(ClaimTypes.Email, email),
-            new Claim(ClaimTypes.Name, name)
+            new(JwtRegisteredClaimNames.Sub, accountId),
+            new(ClaimTypes.NameIdentifier, accountId),
+            new("account_id", accountId),
+            new(ClaimTypes.Name, account.DisplayName)
         };
+
+        if (!string.IsNullOrWhiteSpace(account.Email))
+        {
+            claims.Add(new Claim(ClaimTypes.Email, account.Email));
+        }
+
+        foreach (var membership in memberships)
+        {
+            claims.Add(new Claim("membership", $"{membership.BusinessId}:{membership.Role}"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],

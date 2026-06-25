@@ -1,5 +1,6 @@
 ﻿using EntregasApi.DTOs;
 using EntregasApi.Services;
+using EntregasApi.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,6 +9,7 @@ namespace EntregasApi.Controllers
     [ApiController]
     [Route("api/admin")]
     [Authorize]
+    [RequiresFeature(Feature.Financials)]
     public class AdminFinancialsController : ControllerBase
     {
         private readonly IExpenseService _service;

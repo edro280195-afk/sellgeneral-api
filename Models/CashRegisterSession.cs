@@ -3,15 +3,18 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EntregasApi.Models;
 
-public class CashRegisterSession
+public class CashRegisterSession : ITenantOwned
 {
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Negocio (tenant) dueño de esta caja.</summary>
+    public int BusinessId { get; set; }
+
     [Required]
-    public int UserId { get; set; }
-    [ForeignKey(nameof(UserId))]
-    public User User { get; set; } = null!;
+    public int AccountId { get; set; }
+    [ForeignKey(nameof(AccountId))]
+    public Account Account { get; set; } = null!;
 
     public DateTime OpeningTime { get; set; } = DateTime.UtcNow;
     

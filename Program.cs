@@ -1,11 +1,13 @@
 using EntregasApi.Data;
 using EntregasApi.Hubs;
+using EntregasApi.Models;
 using EntregasApi.Services;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OfficeOpenXml;
@@ -67,6 +69,15 @@ ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
 // ── HTTP Client (Mercado Pago y otras llamadas externas) ──
 builder.Services.AddHttpClient();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddDataProtection();
+builder.Services.AddSingleton(TimeProvider.System);
+
+// ── Plataforma MP: suscripciones (Fase 1.3) ──
+// Credenciales de PLATAFORMA (cobro de la suscripcion de la vendedora).
+// Distintas de Business.MercadoPagoAccessToken (que cobra a las clientas).
+builder.Services.Configure<MercadoPagoSubscriptionOptions>(builder.Configuration.GetSection("Platform:MercadoPago"));
+builder.Services.AddScoped<IMercadoPagoSubscriptionService, MercadoPagoSubscriptionService>();
 
 // ── Database ──
 var connectionString = builder.Configuration.GetConnectionString("Default");
@@ -85,8 +96,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+            IssuerSigningKey = JwtSigningKey.FromConfiguration(builder.Configuration)
         };
 
         // Permitir JWT via query string para SignalR
@@ -105,9 +115,50 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser()
+        .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin))
+        .Build();
+
+    options.AddPolicy(AuthorizationPolicies.AuthenticatedAccount, policy =>
+        policy.RequireAuthenticatedUser());
+
+    options.AddPolicy(AuthorizationPolicies.BusinessMember, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement()));
+
+    options.AddPolicy(AuthorizationPolicies.Owner, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Owner)));
+
+    options.AddPolicy(AuthorizationPolicies.Admin, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin)));
+
+    options.AddPolicy(AuthorizationPolicies.Driver, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Driver)));
+
+    options.AddPolicy(AuthorizationPolicies.Scaner, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Scaner)));
+
+    options.AddPolicy(AuthorizationPolicies.PosAccess, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin, MembershipRole.Scaner)));
+
+    options.AddPolicy(AuthorizationPolicies.RoutesAccess, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin, MembershipRole.Driver)));
+});
 
 // ── Services ──
+builder.Services.AddScoped<ICurrentTenant, CurrentTenant>();
+builder.Services.AddScoped<ICurrentBusiness, CurrentBusiness>();
+builder.Services.AddScoped<ICurrentAccount, CurrentAccount>();
+builder.Services.AddScoped<IAuthorizationHandler, MembershipAuthorizationHandler>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
@@ -129,28 +180,31 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPosService, PosService>();
 builder.Services.AddScoped<ITandaService, TandaService>();
 builder.Services.AddScoped<IRaffleService, RaffleService>();
-builder.Services.AddSingleton<ICloudinaryService, CloudinaryService>();
+// Scoped (antes Singleton): ahora resuelve la carpeta de subida por tenant ({slug}/...)
+// vía ICurrentBusiness, que es scoped.
+builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<IClientResolverService, ClientResolverService>();
+builder.Services.AddScoped<IClientClaimService, ClientClaimService>();
 builder.Services.AddScoped<ILiveCaptureService, LiveCaptureService>();
+builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 
 // ── SignalR ──
 builder.Services.AddSignalR();
 
-// ── CORS ──
-// 1. Definir la política
+// ── CORS multi-tenant ──
+// Los orígenes ya no están hardcodeados a regibazar.com: se aceptan los dominios
+// registrados en cada Business.FrontendUrl (vía TenantCorsOriginStore, cacheado) más
+// los orígenes fijos de desarrollo y Capacitor. corsOriginStore se asigna justo después
+// de build(); el lambda de SetIsOriginAllowed solo se ejecuta en cada request (ya con
+// el store resuelto), no durante el arranque.
+builder.Services.AddSingleton<TenantCorsOriginStore>();
+TenantCorsOriginStore? corsOriginStore = null;
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:4200",
-                "https://regibazar.com",
-                "https://www.regibazar.com",
-                "http://localhost",
-                "https://localhost",
-                "capacitor://localhost"
-            )
+            .SetIsOriginAllowed(origin => corsOriginStore?.IsAllowed(origin) ?? false)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials(); // Necesario para SignalR
@@ -188,16 +242,21 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// ── Static files for uploaded evidence ──
-builder.Services.AddDirectoryBrowser();
-
 var app = builder.Build();
+
+// El store de orígenes CORS se resuelve aquí; el lambda de la política lo usa por request.
+corsOriginStore = app.Services.GetRequiredService<TenantCorsOriginStore>();
 
 // ── Migrate DB on startup ──
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+
+    if (app.Environment.IsDevelopment())
+    {
+        await DevelopmentTenantSeeder.SeedAsync(db);
+    }
 
     // Backfill de los campos normalizados de Client para clientas existentes que se
     // crearon antes de la migración AddClientAliasesAndFuzzy. La normalización vive
@@ -245,19 +304,9 @@ using (var scope = app.Services.CreateScope())
     }
 #pragma warning restore CS0618
 
-    // Seed del catálogo de premios de RegiPuntos (idempotente: solo si está vacío).
-    if (!await db.LoyaltyRewards.AnyAsync())
-    {
-        Console.WriteLine("⚙️  Sembrando catálogo de premios RegiPuntos...");
-        db.LoyaltyRewards.AddRange(
-            new EntregasApi.Models.LoyaltyReward { Name = "$50 de descuento", Description = "Aplica $50 menos en tu próximo pedido.", PointsCost = 100, Type = EntregasApi.Models.LoyaltyRewardType.FixedDiscount, Value = 50m, Icon = "💸", SortOrder = 1 },
-            new EntregasApi.Models.LoyaltyReward { Name = "Envío gratis", Description = "Te invitamos el envío de tu pedido.", PointsCost = 150, Type = EntregasApi.Models.LoyaltyRewardType.FreeShipping, Value = 0m, Icon = "🚚", SortOrder = 2 },
-            new EntregasApi.Models.LoyaltyReward { Name = "$100 de descuento", Description = "Aplica $100 menos en tu próximo pedido.", PointsCost = 200, Type = EntregasApi.Models.LoyaltyRewardType.FixedDiscount, Value = 100m, Icon = "💰", SortOrder = 3 },
-            new EntregasApi.Models.LoyaltyReward { Name = "Regalito sorpresa", Description = "Una sorpresita de Regi Bazar en tu pedido.", PointsCost = 300, Type = EntregasApi.Models.LoyaltyRewardType.Gift, Value = 0m, Icon = "🎁", SortOrder = 4 }
-        );
-        await db.SaveChangesAsync();
-        Console.WriteLine("✅ Catálogo de premios sembrado.");
-    }
+    // El catálogo de premios de RegiPuntos ya NO se siembra globalmente aquí: ahora es
+    // por-tenant y lo crea DevelopmentTenantSeeder.EnsureLoyaltyRewardsAsync (con BusinessId)
+    // solo en Development. En producción llega por el migrador / onboarding (Fase 1).
 }
 
 // ── Middleware pipeline ──
@@ -267,31 +316,48 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Storage local SOLO en DESARROLLO (cuando las credenciales de Cloudinary son
+// "dummy" o se fuerza Storage:UseLocal=true). Las imagenes servidas viven
+// en wwwroot/uploads/{slug}/{folder}/{filename} y se exponen en /uploads/*.
+// En cualquier otro entorno NO se monta: las imagenes van a Cloudinary.
+var useLocalStorage = app.Configuration.GetValue<bool>("Storage:UseLocal")
+    || app.Environment.IsDevelopment() && IsCloudinaryDummy(app.Configuration);
+if (useLocalStorage)
+{
+    var uploadsPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "uploads");
+    Directory.CreateDirectory(uploadsPath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+        RequestPath = "/uploads",
+        ServeUnknownFileTypes = true,
+        DefaultContentType = "application/octet-stream"
+    });
+    app.Logger.LogInformation("[Storage] Sirviendo uploads locales desde {Path} en /uploads", uploadsPath);
+}
+
 // 1. Primero enrutar
 app.UseRouting();
 
 // 2. LUEGO aplicar la política de CORS
 app.UseCors("AllowAll");
 
-// 3. Servir fotos de evidencia
-try
+static bool IsCloudinaryDummy(IConfiguration config)
 {
-    var uploadsDir = Path.Combine(app.Environment.ContentRootPath, "uploads");
-    if (!Directory.Exists(uploadsDir)) Directory.CreateDirectory(uploadsDir);
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(uploadsDir),
-        RequestPath = "/uploads"
-    });
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Error initializing uploads directory: {ex.Message}");
+    var section = config.GetSection("Cloudinary");
+    var name = section["CloudName"];
+    var key = section["ApiKey"];
+    var secret = section["ApiSecret"];
+    return string.IsNullOrWhiteSpace(name) || name == "dummy"
+        || string.IsNullOrWhiteSpace(key) || key == "dummy"
+        || string.IsNullOrWhiteSpace(secret) || secret == "dummy";
 }
 
 // 4. Autenticación y Autorización
 app.UseAuthentication();
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<SubscriptionLockMiddleware>();
 
 // 5. Mapear endpoints
 app.MapControllers();
