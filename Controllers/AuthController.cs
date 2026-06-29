@@ -4,6 +4,8 @@ using EntregasApi.Models;
 using EntregasApi.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace EntregasApi.Controllers;
 
@@ -13,12 +15,32 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
+    private readonly IHostEnvironment _env;
+    private readonly IConfiguration _config;
 
-    public AuthController(AppDbContext db, ITokenService tokenService)
+    public AuthController(
+        AppDbContext db,
+        ITokenService tokenService,
+        IHostEnvironment env,
+        IConfiguration config)
     {
         _db = db;
         _tokenService = tokenService;
+        _env = env;
+        _config = config;
     }
+
+    /// <summary>
+    /// El OTP por SMS aún no tiene proveedor. En Development (o con
+    /// Auth:DevOtpEnabled=true) habilitamos un código fijo para poder
+    /// construir y probar el flujo de la app. NUNCA se activa en producción
+    /// salvo que se prenda el flag explícitamente.
+    /// </summary>
+    private bool IsDevOtpEnabled =>
+        _env.IsDevelopment() ||
+        string.Equals(_config["Auth:DevOtpEnabled"], "true", StringComparison.OrdinalIgnoreCase);
+
+    private string DevOtpCode => _config["Auth:DevOtpCode"] ?? "000000";
 
     [HttpPost("register")]
     public async Task<ActionResult<LoginResponse>> Register(RegisterRequest req)
@@ -81,23 +103,59 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Telefono invalido." });
         }
 
+        var devMode = IsDevOtpEnabled;
         return Accepted(new
         {
             phone,
             otpRequired = true,
             providerConfigured = false,
-            message = "El proveedor SMS se conectara en una fase posterior."
+            devMode,
+            message = devMode
+                ? $"Modo DEV: usa el codigo {DevOtpCode} para entrar."
+                : "El proveedor SMS se conectara en una fase posterior."
         });
     }
 
     [HttpPost("phone/verify")]
-    public ActionResult VerifyPhoneOtp(VerifyPhoneLoginRequest req)
+    public async Task<ActionResult<LoginResponse>> VerifyPhoneOtp(VerifyPhoneLoginRequest req)
     {
-        return StatusCode(StatusCodes.Status501NotImplemented, new
+        var phone = TextNormalizer.NormalizePhone(req.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
         {
-            error = "otp_provider_not_configured",
-            message = "El login por telefono ya tiene contrato, pero aun no valida OTP."
-        });
+            return BadRequest(new { message = "Telefono invalido." });
+        }
+
+        if (!IsDevOtpEnabled)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, new
+            {
+                error = "otp_provider_not_configured",
+                message = "El login por telefono ya tiene contrato, pero aun no valida OTP."
+            });
+        }
+
+        if (!string.Equals(req.Code?.Trim(), DevOtpCode, StringComparison.Ordinal))
+        {
+            return Unauthorized(new { error = "invalid_code", message = "Codigo incorrecto." });
+        }
+
+        var account = await _db.Accounts
+            .Include(a => a.Memberships)
+                .ThenInclude(m => m.Business)
+            .FirstOrDefaultAsync(a => a.Phone == phone);
+
+        if (account is null)
+        {
+            account = new Account
+            {
+                DisplayName = "Clienta",
+                Phone = phone
+            };
+            _db.Accounts.Add(account);
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(BuildLoginResponse(account, account.Memberships));
     }
 
     [HttpPost("facebook")]

@@ -16,8 +16,10 @@ Tracker de avance sobre el plan `ROLYCONTEXTO.md`.
 **Fase FE-2 - Alta de negocio + wizard de marca (Angular) - completo y validado.**
 **Fase FE-3 - Planes + estado + muro de bloqueo (Angular) - completo y validado.**
 **Fase FE-4 - Pago con brick de Mercado Pago (Angular) - completo y validado.**
+**Fase M.1 - Migrador consola (one-shot) - completo y validado en build.**
+**Fase M.1 - Runbook operativo simplificado - completo.**
 
-**Siguiente:** M.1 (Migrador consola) — el frontend de Fase 1 queda cerrado.
+**Siguiente:** ejecucion operativa (no hay mas codigo en el plan). Pendientes del checklist: (1) crear branches de Neon "staging-cutover" y "prod-cutover", (2) correr el ensayo en staging hasta dar PASS, (3) promover a "prod-cutover", (4) apuntar la app. Sin "ventana sin live", sin "switch de DNS", sin "rollback 5 min" — el cambio de connection string es un deploy normal.
 
 ## Fase 0 - Cimientos Backend
 
@@ -142,20 +144,26 @@ E2E contra API local + base DEV:
 
 | # | Plan | Estado | Notas |
 |---|---|---|---|
-| M.1 | Migrador consola una sola vez | Pendiente | Proyecto `EntregasApi.Migrator`, modo `--verify`, ensayar contra branch de Neon antes de produccion. |
+| M.1 | Migrador consola una sola vez | Hecho | Proyecto `EntregasApi.Migrator` (.NET 8 console) + `EntregasApi.Migrator.Tests`. Modo `--verify` (6 chequeos: conteos+tokens+spot-check+secuencias+FKs+identidad) y modo copia (una sola transaccion, todo o nada). Sesion de origen forzada a `READ ONLY` con `SET default_transaction_read_only=on`. Pre-chequeo: aborta si destino ya tiene Business Id=1. Transformaciones A-F: crea Business Id=1 con marca Regi Bazar (`#FF0072` rosa, PlanTier=Elite), `Users` -> `Accounts`+`Memberships` (PKs conservadas, roles Admin/Driver/Scaner), `CashRegisterSession.UserId` -> `AccountId`, estampa `BusinessId=1` en toda tabla tenant-ownada, `Clients.AccountId=NULL`, `AppSettings` con la fila unica de origen. `MercadoPagoAccessToken` se encripta con `DataProtectionProvider` (`ApplicationName="EntregasApi"`, mismo protector que la app) o queda NULL con WARN. `evidence-map` JSON opcional para reescribir las 3 `DeliveryEvidences` con ruta local. Reset de secuencias int-PK al `MAX(Id)` (Guid-PK no llevan). Respeta las 4 colisiones criticas: `products` (Tanda) != `Products` (POS), `payments` (TandaPayment) != `OrderPayments`, `tandas` snake_case != `Orders` PascalCase. README con orden de invocacion (ensayo en branch Neon -> corte real -> rollback). NO se ha corrido contra datos reales: el ensayo va contra branch de Neon (copia), nunca produccion, segun el plan. |
+| M.1-RUNBOOK | Runbook operativo simplificado | Hecho | `EntregasApi.Migrator/M.1-RUNBOOK.md`. 8 pasos lineales, sin "Etapa 5/6" ni "ventana sin live": (1) crear 2 branches Neon + correr `dotnet ef database update` en cada uno con env var `ConnectionStrings__Default`, (2) `--verify` sobre ensayo, (3) copia sobre ensayo, (4) re-verify, (5) smoke test manual, (6) promover a `prod-cutover` (repetir 2-4), (7) apuntar la app (env var + reinicio), (8) reversión = re-deploy normal. Apéndices: decisiones, psql rápido, lo que NO hace. Las 3 evidencias con ruta local eran pruebas locales — no se rescatan, no se usa `--evidence-map`. |
+| M.1-EJECUCION | Corrida real del migrador | Hecho | Corrida one-shot ejecutada el 2026-06-26 contra `ep-steep-bar-ai7vx9g2` (origen, prod single-tenant) -> `ep-lively-wind-aty96jj0` (destino, prod-cutover multi-tenant vacio) y `ep-polished-brook-ata0c0us` (destino, staging-cutover para ensayo). Modo `--preflight` agregado al migrador para validar accesibilidad y estado sin escribir. 9 migraciones nuevas EF aplicadas a cada destino (0.1 a 1.3 + FE-0). Copia con `--rb-mp-token` produjo: Business=1 (Regi Bazar rosa #FF0072, Plan=Elite, Status=Active), Accounts=4, Memberships=4 (1 Owner/1 Driver/2 Scaner), Orders=743, Clients=334, OrderItems=2782, OrderPayments=656, AppSettings=1, CashRegisterSessions=1, products=4 (Tanda), payments=255, tandas=6, raffles=1, raffle_entries=235, etc. `--verify` post-copia: **6/6 PASS** (conteos 35 tablas OK, tokens 0 nulos/0 dupes identicos, spot-check 4/4, secuencias, 0 huerfanos, identidad OK). ORIGEN 100% intacta: 16/16 snapshots coinciden (Orders=743, Clients=334, Users=4, __EFMigrationsHistory=38). `MercadoPagoAccessToken` encriptado en destino (prefijo `CfDJ8GTIpkO...`, 219 chars, NO en texto plano). Bugs del codigo encontrados y arreglados: 15 (case-fold, int->long cast, OrderPackages mal clasificado uuid, pkey dinamica por tabla, `pg_sequences` case-insensitive, huérfanos prefijo tabla, separacion selectColumns/copyColumns, BeginBinaryImport sin opciones, tipos Postgres inferidos del reader, orden topologico de raffle_entries, copia custom de CashRegisterSessions, ChatMessages/ClientMergeAudits sin BusinessId, Memberships.Role como int, RemapCashRegisterUserId redundante, secuencias case-insensitive en Verify). |
+| M.1-APPSETTINGS | Cambio del connection string en app | Hecho | `appsettings.json` actualizado: `Default` apunta ahora a `ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech` (prod-cutover nuevo). Password se mantiene como `dummy` (placeholder) por la convencion del repo (el password real viene de env var `ConnectionStrings__Default` en el host de despliegue, o del `appsettings.Development.json` que SI esta en `.gitignore`). El connection string viejo (`ep-steep-bar-ai7vx9g2` en `c-4`) queda como referencia historica pero ya no es el destino activo. |
+| M.1-SMOKE-TEST | Smoke test automatizado post-cutover | Hecho | `EntregasApi.Migrator/smoke-test.ps1` (PowerShell) + `M.1-SMOKE-TEST.md` (instrucciones). 7 tests: 4 publicos (pedido, driver, tanda, token-invalido) + 3 autenticados (login, business/me, orders/paged) que requieren `SMOKE_OWNER_EMAIL` y `SMOKE_OWNER_PASSWORD` via env vars. Validado localmente con la API corriendo contra prod-cutover: 4/4 PASS en los tests publicos. Endpoint de login responde 401 con password incorrecta (la cuenta existe, el endpoint funciona). Exit code 0 = todo OK, 1 = algun FAIL. |
+| M.1-POST-CUTOVER | Pasos restantes operativos | Hecho | `EntregasApi.Migrator/M.1-POST-CUTOVER.md`. 10 pasos en orden: (1) verificar pre-condiciones, (2) apuntar app + reiniciar, (3) smoke test automatizado, (4) smoke test manual en navegador, (5) verificar DataProtection keys (critico si los hosts son distintos), (6) avisar a Regi, (7) monitoreo 24-72h, (8) limpieza de archivos y seguridad, (9) archivar base vieja despues de 30 dias, (10) opcional campana de captura de telefonos. Tiempo total ~30 min de trabajo activo + monitoreo pasivo. Incluye tambien el procedimiento de rollback express (5 min: cambiar env var al host viejo + reiniciar). |
 
 ## Resumen
 
-- Hechos: 16 (0.0 -> 1.3 + FE-0..FE-5).
-- Pendientes: 1 (M.1).
-- Migrador: se ejecuta al corte.
+- Hechos: 22 (0.0 -> 1.3 + FE-0..FE-5 + M.1 + M.1-RUNBOOK + M.1-EJECUCION + M.1-APPSETTINGS + M.1-SMOKE-TEST + M.1-POST-CUTOVER).
+- Pendientes: 0 en codigo. Pendientes operativos del usuario (seguid `M.1-POST-CUTOVER.md`): reiniciar la app, correr el smoke test, smoke test manual, verificar DataProtection, notificar a Regi, monitorear 24-72h, limpiar archivos, archivar base vieja en 30 dias.
 
 ## Convenciones Del Repo
 
 - Tests: `dotnet test Tests\EntregasApi.Tests\EntregasApi.Tests.csproj` -> 113/113 verde (backend sin cambios nuevos en este paso).
+- Tests del migrador: `dotnet test EntregasApi.Migrator.Tests/EntregasApi.Migrator.Tests.csproj` -> 18/18 PASS (10 del parser CLI + 8 del plan).
 - Frontend build: `npx ng build` -> 0 errores TS.
 - Frontend dev: `npx ng serve` levanta en `http://localhost:4200`.
 - Build: `dotnet build` -> 0 errores, warnings preexistentes.
+- Migrador: `dotnet build EntregasApi.Migrator/EntregasApi.Migrator.csproj` -> 0 errores, 0 warnings. Modo `--verify` (sin escribir) y modo copia (1 transaccion).
 - Migraciones: `dotnet ef database update --project EntregasApi.csproj`.
 - Connection string DEV: `appsettings.Development.json` (Neon branch de desarrollo, no produccion).
 - Stack: .NET 8 / EF Core 8 / PostgreSQL 17 (Neon) / SignalR.

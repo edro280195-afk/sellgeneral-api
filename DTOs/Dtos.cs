@@ -1078,6 +1078,299 @@ public record ClaimedClientSummaryDto(
     string LinkedBy,
     DateTime ClaimedAt);
 
+// ── Feed de la compradora (app Flutter, Fase 2) ──
+public record BuyerHomeDto(
+    string DisplayName,
+    int TotalPoints,
+    BuyerActiveOrderDto? ActiveOrder,
+    List<BuyerStoreDto> Stores,
+    List<BuyerRecentOrderDto> RecentOrders,
+    int LiveCount);
+
+public record BuyerStoreDto(
+    int BusinessId,
+    string Name,
+    string? Slug,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    int Points,
+    bool IsLive);
+
+public record BuyerActiveOrderDto(
+    int OrderId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string Status,
+    string? AccessToken,
+    DateTime? ScheduledDeliveryDate,
+    decimal Total);
+
+public record BuyerRecentOrderDto(
+    int OrderId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string Status,
+    int ItemsCount,
+    decimal Total,
+    DateTime CreatedAt);
+
+/// <summary>
+/// Filtro aceptado por GET /api/me/orders. "open" agrupa los estados en curso
+/// (Pending/Confirmed/Shipped/InRoute); "closed" agrupa los terminales
+/// (Delivered/Canceled/NotDelivered/Postponed). "all" no filtra.
+/// </summary>
+public static class BuyerOrderFilter
+{
+    public const string All = "all";
+    public const string Open = "open";
+    public const string Closed = "closed";
+
+    public static bool IsValid(string? value) =>
+        value is null
+        || string.Equals(value, All, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, Open, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, Closed, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// Pedido cross-tenant para la pantalla "Mis pedidos" de la compradora.
+/// Es la versión "completa" de BuyerRecentOrderDto (incluye AccessToken para
+/// poder abrir el rastreo y logo de la tienda).
+/// </summary>
+public record BuyerOrderDto(
+    int OrderId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    string Status,
+    int ItemsCount,
+    decimal Total,
+    string? AccessToken,
+    DateTime CreatedAt,
+    DateTime? ScheduledDeliveryDate);
+
+/// <summary>
+/// Respuesta paginada de GET /api/me/orders. Page es 1-based; Total es el
+/// conteo total antes de paginar (útil para que la app muestre "Página X de Y").
+/// </summary>
+public record BuyerOrdersResponse(
+    List<BuyerOrderDto> Orders,
+    int Total,
+    int Page,
+    int PageSize,
+    string Filter,
+    int? BusinessId);
+
+/// <summary>
+/// Premio canjeable visto por la compradora. Es una copia del LoyaltyRewardDto
+/// del lado vendedora (Controllers/LoyaltyController.cs) para no acoplar la
+/// app del cliente al modelo interno.
+/// </summary>
+public record BuyerRewardDto(
+    int Id,
+    string Name,
+    string? Description,
+    int PointsCost,
+    string Type,
+    decimal Value,
+    string? Icon);
+
+/// <summary>
+/// Catálogo de premios activos de UNA tienda de la compradora, junto con los
+/// puntos que ella tiene acumulados en esa tienda. Si la tienda no tiene
+/// premios configurados, igual aparece con `rewards` vacío (para mostrar
+/// "Pronto habrá premios" en la app).
+/// </summary>
+public record RewardsByBusinessDto(
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    int StorePoints,
+    List<BuyerRewardDto> Rewards);
+
+/// <summary>
+/// Tanda vista por la compradora (cross-tenant por AccountId). Si la
+/// compradora está inscrita, `IsMine = true` y los campos opcionales traen
+/// su turno, semanas pagadas y si es la ganadora de la semana actual.
+/// Si NO está inscrita, la tanda aparece igual para que la app pueda
+/// listarla en "Disponibles" — esos campos quedan null.
+/// </summary>
+public record MyTandaDto(
+    Guid TandaId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    int ClientId,
+    string Name,
+    string ProductName,
+    int TotalWeeks,
+    decimal WeeklyAmount,
+    DateTime StartDate,
+    string Status,
+    int CurrentWeek,
+    bool IsMine,
+    int? MyTurn,
+    bool? HasPaidThisWeek,
+    List<int> PaidWeeks,
+    bool? AmIThisWeekWinner);
+
+/// <summary>
+/// Sorteo visto por la compradora (cross-tenant por AccountId). Si tiene
+/// al menos una entrada (RaffleEntry) o aparece como RaffleParticipant,
+/// `IsMineEntered = true` y trae `MyEntryCount` (boletos) y/o `AmIWinner`.
+/// Si no, aparece igual para mostrar sorteos activos de sus tiendas.
+/// </summary>
+public record MyRaffleDto(
+    Guid RaffleId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    int ClientId,
+    string Name,
+    string? ImageUrl,
+    string PrizeType,
+    decimal? PrizeValue,
+    string? PrizeDescription,
+    DateTime RaffleDate,
+    string Status,
+    string? TandaName,
+    int MyEntryCount,
+    bool IsMineEntered,
+    bool AmIWinner,
+    DateTime? AnnouncedAt);
+
+/// <summary>
+/// Producto del catálogo público de una tienda (sin imágenes — el modelo
+/// `Product` no las tiene todavía). Se devuelve una selección acotada de
+/// los productos activos más recientes para alimentar la grid del tab
+/// "Productos" de la pantalla de tienda.
+/// </summary>
+public record BuyerProductDto(
+    int Id,
+    string Sku,
+    string Name,
+    decimal Price,
+    int Stock);
+
+/// <summary>
+/// Resumen del live activo de una tienda (Status = Ready). Se incluye
+/// solo si hay una sesión de live "publicada" en el momento del GET.
+/// </summary>
+public record BuyerLiveSummaryDto(
+    int SessionId,
+    string Title,
+    int ViewerCount,
+    string? Topics,
+    DateTime? ProcessedAt);
+
+/// <summary>
+/// Puntos de la compradora en una tienda y el costo de la próxima reward
+/// que podría canjear (o null si la tienda no tiene rewards configuradas).
+/// </summary>
+public record BuyerStorePointsDto(
+    int CurrentPoints,
+    int? NextRewardAt);
+
+/// <summary>
+/// Vista de tienda para la pantalla `/store/{businessId}`. Single endpoint
+/// que devuelve header, puntos, live (si hay), productos y counts para
+/// que la app pinte la pantalla sin encadenar requests.
+/// </summary>
+public record BuyerStoreDetailDto(
+    int BusinessId,
+    string Name,
+    string? Slug,
+    string? City,
+    string? LogoUrl,
+    string BrandPrimaryColor,
+    string? BrandAccentColor,
+    int ClientCount,
+    bool IsVerified,
+    BuyerStorePointsDto Points,
+    BuyerLiveSummaryDto? Live,
+    List<BuyerProductDto> Products,
+    int ActiveTandasCount,
+    int ActiveRafflesCount);
+
+/// <summary>
+/// Request para que la compradora aparte un producto de una tienda.
+/// Crea un `Order` con `Status = Pending` y `OrderType = PickUp`. La
+/// respuesta es el mismo `BuyerOrderDto` que `GET /api/me/orders` para
+/// que la app pueda navegar a `/tracking/{id}?token=…` de una vez.
+/// </summary>
+public record ReserveProductRequest(
+    int BusinessId,
+    int ProductId,
+    int Quantity = 1);
+
+/// <summary>
+/// Pago visto por la compradora (cross-tenant por AccountId). Es la
+/// unión de `OrderPayment` con info mínima del `Order` y la tienda para
+/// que la app pueda agrupar/mostrar sin hacer N+1 requests.
+/// </summary>
+public record BuyerPaymentDto(
+    int PaymentId,
+    int OrderId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    decimal Amount,
+    string Method,
+    DateTime Date,
+    string RegisteredBy,
+    string? Notes,
+    string OrderStatus,
+    decimal OrderTotal);
+
+/// <summary>
+/// Dirección de la compradora en una tienda (cross-tenant por AccountId).
+/// Es la "dirección de entrega" que la tienda tiene guardada para esta
+/// clienta. El modelo actual asume 1 dirección por Client.
+/// </summary>
+public record BuyerAddressDto(
+    int ClientId,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    string? Address,
+    double? Latitude,
+    double? Longitude,
+    string? DeliveryInstructions);
+
+/// <summary>
+/// Body para que la compradora actualice su dirección en una tienda.
+/// Solo se modifican los campos no-null; los null se dejan sin tocar.
+/// </summary>
+public record UpdateBuyerAddressRequest(
+    string? Address = null,
+    double? Latitude = null,
+    double? Longitude = null,
+    string? DeliveryInstructions = null);
+
+/// <summary>
+/// Notificación persistida vista por la compradora. Se devuelve
+/// ordenada por fecha desc y se filtra por los Client de la Account
+/// (cross-tenant). El `Tag` lo usa la app para decidir icono/cta.
+/// </summary>
+public record BuyerNotificationDto(
+    Guid Id,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string Title,
+    string Message,
+    string Tag,
+    string? Url,
+    int? OrderId,
+    DateTime CreatedAt,
+    DateTime? ReadAt);
+
 // ── Suscripcion de plataforma (Fase 1.3) ──
 
 /// <summary>

@@ -185,6 +185,16 @@ builder.Services.AddScoped<IRaffleService, RaffleService>();
 builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<IClientResolverService, ClientResolverService>();
 builder.Services.AddScoped<IClientClaimService, ClientClaimService>();
+builder.Services.AddScoped<IBuyerFeedService, BuyerFeedService>();
+builder.Services.AddScoped<IBuyerOrdersService, BuyerOrdersService>();
+builder.Services.AddScoped<IBuyerRewardsService, BuyerRewardsService>();
+builder.Services.AddScoped<IBuyerTandasService, BuyerTandasService>();
+builder.Services.AddScoped<IBuyerRafflesService, BuyerRafflesService>();
+builder.Services.AddScoped<IBuyerStoreService, BuyerStoreService>();
+builder.Services.AddScoped<IBuyerReserveService, BuyerReserveService>();
+builder.Services.AddScoped<IBuyerPaymentService, BuyerPaymentService>();
+builder.Services.AddScoped<IBuyerAddressService, BuyerAddressService>();
+builder.Services.AddScoped<IBuyerNotificationService, BuyerNotificationService>();
 builder.Services.AddScoped<ILiveCaptureService, LiveCaptureService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 

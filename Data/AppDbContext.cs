@@ -53,6 +53,7 @@ public class AppDbContext : DbContext
     public DbSet<LoyaltyReward> LoyaltyRewards => Set<LoyaltyReward>();
     public DbSet<PushSubscriptionModel> PushSubscriptions => Set<PushSubscriptionModel>();
     public DbSet<OrderPayment> OrderPayments => Set<OrderPayment>();
+    public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SalesPeriod> SalesPeriods => Set<SalesPeriod>();
     public DbSet<OrderPackage> OrderPackages => Set<OrderPackage>();
     public DbSet<FcmToken> FcmTokens => Set<FcmToken>();

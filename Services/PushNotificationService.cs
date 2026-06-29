@@ -45,6 +45,36 @@ public class PushNotificationService : IPushNotificationService
 
     public async Task SendNotificationToClientAsync(int clientId, string title, string message, string? url = null, string? tag = null)
     {
+        // Persistir la notificación para que la compradora la vea en su
+        // historial (cross-tenant via Client.AccountId).
+        try
+        {
+            var client = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
+                .Where(c => c.Id == clientId)
+                .Select(c => new { c.Id, c.BusinessId })
+                .FirstOrDefaultAsync();
+            if (client is not null)
+            {
+                _db.Notifications.Add(new Models.Notification
+                {
+                    Id = Guid.NewGuid(),
+                    BusinessId = client.BusinessId,
+                    ClientId = client.Id,
+                    Title = title,
+                    Message = message,
+                    Tag = tag ?? "general",
+                    Url = url,
+                    CreatedAt = DateTime.UtcNow,
+                });
+                await _db.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No pude persistir la notificación para client {ClientId}", clientId);
+            // Continuar: la notificación push es lo importante.
+        }
+
         var subscriptions = await _db.PushSubscriptions
             .Where(s => s.Role == "client" && s.ClientId == clientId)
             .ToListAsync();

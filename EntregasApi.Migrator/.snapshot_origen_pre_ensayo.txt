@@ -1,0 +1,16 @@
+fecha: 2026-06-26T15:58:51.6194928Z
+Orders: 743
+Clients: 334
+Users: 4
+OrderItems: 2782
+OrderPayments: 656
+AppSettings: 1
+products: 4
+payments: 255
+tandas: 6
+raffles: 1
+OrderPackages: 7
+ChatMessages: 45
+LiveSessions: 13
+Suppliers: 12
+Investments: 29

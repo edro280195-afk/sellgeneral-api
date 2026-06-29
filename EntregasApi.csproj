@@ -29,6 +29,12 @@
 
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />
+    <Compile Remove="EntregasApi.Migrator\**\*.cs" />
+    <Compile Remove="EntregasApi.Migrator.Tests\**\*.cs" />
+    <Content Remove="EntregasApi.Migrator\**" />
+    <Content Remove="EntregasApi.Migrator.Tests\**" />
+    <None Remove="EntregasApi.Migrator\**" />
+    <None Remove="EntregasApi.Migrator.Tests\**" />
   </ItemGroup>
 
   <ItemGroup>
