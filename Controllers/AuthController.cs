@@ -2,6 +2,7 @@ using EntregasApi.Data;
 using EntregasApi.DTOs;
 using EntregasApi.Models;
 using EntregasApi.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -17,24 +18,25 @@ public class AuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IHostEnvironment _env;
     private readonly IConfiguration _config;
+    private readonly IPhoneVerificationService _phoneVerification;
 
     public AuthController(
         AppDbContext db,
         ITokenService tokenService,
         IHostEnvironment env,
-        IConfiguration config)
+        IConfiguration config,
+        IPhoneVerificationService phoneVerification)
     {
         _db = db;
         _tokenService = tokenService;
         _env = env;
         _config = config;
+        _phoneVerification = phoneVerification;
     }
 
     /// <summary>
-    /// El OTP por SMS aún no tiene proveedor. En Development (o con
-    /// Auth:DevOtpEnabled=true) habilitamos un código fijo para poder
-    /// construir y probar el flujo de la app. NUNCA se activa en producción
-    /// salvo que se prenda el flag explícitamente.
+    /// En Development (o con Auth:DevOtpEnabled=true) se usa un código fijo.
+    /// En producción el flujo se delega a Twilio Verify.
     /// </summary>
     private bool IsDevOtpEnabled =>
         _env.IsDevelopment() ||
@@ -104,54 +106,137 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("phone/request-otp")]
-    public ActionResult RequestPhoneOtp(PhoneLoginRequest req)
+    [EnableRateLimiting("otp-send")]
+    public async Task<ActionResult> RequestPhoneOtp(
+        PhoneLoginRequest req,
+        CancellationToken cancellationToken = default)
     {
-        var phone = TextNormalizer.NormalizePhone(req.Phone);
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
         if (string.IsNullOrWhiteSpace(phone))
         {
-            return BadRequest(new { message = "Telefono invalido." });
+            return BadRequest(new
+            {
+                message = "Escribe un telefono mexicano de 10 digitos con lada."
+            });
         }
 
         var devMode = IsDevOtpEnabled;
+        if (devMode)
+        {
+            return Accepted(new
+            {
+                phone,
+                otpRequired = true,
+                providerConfigured = _phoneVerification.IsConfigured,
+                devMode = true,
+                message = $"Modo DEV: usa el codigo {DevOtpCode} para entrar."
+            });
+        }
+
+        if (!_phoneVerification.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "otp_provider_not_configured",
+                message = "El servicio de SMS aun no esta configurado."
+            });
+        }
+
+        var outcome = await _phoneVerification.SendCodeAsync(phone, cancellationToken);
+        if (outcome != PhoneVerificationOutcome.Sent)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                error = "otp_send_failed",
+                message = "No pudimos enviar el codigo por SMS. Intenta de nuevo."
+            });
+        }
+
         return Accepted(new
         {
             phone,
             otpRequired = true,
-            providerConfigured = false,
-            devMode,
-            message = devMode
-                ? $"Modo DEV: usa el codigo {DevOtpCode} para entrar."
-                : "El proveedor SMS se conectara en una fase posterior."
+            providerConfigured = true,
+            devMode = false,
+            message = "Codigo enviado por SMS."
         });
     }
 
     [HttpPost("phone/verify")]
-    public async Task<ActionResult<LoginResponse>> VerifyPhoneOtp(VerifyPhoneLoginRequest req)
+    [EnableRateLimiting("otp-check")]
+    public async Task<ActionResult<LoginResponse>> VerifyPhoneOtp(
+        VerifyPhoneLoginRequest req,
+        CancellationToken cancellationToken = default)
     {
-        var phone = TextNormalizer.NormalizePhone(req.Phone);
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
         if (string.IsNullOrWhiteSpace(phone))
         {
-            return BadRequest(new { message = "Telefono invalido." });
-        }
-
-        if (!IsDevOtpEnabled)
-        {
-            return StatusCode(StatusCodes.Status501NotImplemented, new
+            return BadRequest(new
             {
-                error = "otp_provider_not_configured",
-                message = "El login por telefono ya tiene contrato, pero aun no valida OTP."
+                message = "Escribe un telefono mexicano de 10 digitos con lada."
             });
         }
 
-        if (!string.Equals(req.Code?.Trim(), DevOtpCode, StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(req.Code) ||
+            req.Code.Length != 6 ||
+            !req.Code.All(char.IsDigit))
         {
-            return Unauthorized(new { error = "invalid_code", message = "Codigo incorrecto." });
+            return BadRequest(new
+            {
+                error = "invalid_code_format",
+                message = "El codigo debe tener 6 digitos."
+            });
+        }
+
+        if (IsDevOtpEnabled)
+        {
+            if (!string.Equals(req.Code.Trim(), DevOtpCode, StringComparison.Ordinal))
+            {
+                return Unauthorized(new
+                {
+                    error = "invalid_code",
+                    message = "Codigo incorrecto."
+                });
+            }
+        }
+        else
+        {
+            if (!_phoneVerification.IsConfigured)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    error = "otp_provider_not_configured",
+                    message = "El servicio de SMS aun no esta configurado."
+                });
+            }
+
+            var outcome = await _phoneVerification.CheckCodeAsync(
+                phone,
+                req.Code.Trim(),
+                cancellationToken);
+            if (outcome == PhoneVerificationOutcome.Invalid)
+            {
+                return Unauthorized(new
+                {
+                    error = "invalid_code",
+                    message = "Codigo incorrecto o expirado."
+                });
+            }
+
+            if (outcome != PhoneVerificationOutcome.Approved)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, new
+                {
+                    error = "otp_verification_failed",
+                    message = "No pudimos validar el codigo. Intenta de nuevo."
+                });
+            }
         }
 
         var account = await _db.Accounts
             .Include(a => a.Memberships)
                 .ThenInclude(m => m.Business)
-            .FirstOrDefaultAsync(a => a.Phone == phone);
+            .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
 
         if (account is null)
         {
@@ -161,7 +246,7 @@ public class AuthController : ControllerBase
                 Phone = phone
             };
             _db.Accounts.Add(account);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
         }
 
         return Ok(BuildLoginResponse(account, account.Memberships));

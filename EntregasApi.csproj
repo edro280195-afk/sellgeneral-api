@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />
+    <Content Remove="Tests\**" />
+    <None Remove="Tests\**" />
     <Compile Remove="EntregasApi.Migrator\**\*.cs" />
     <Compile Remove="EntregasApi.Migrator.Tests\**\*.cs" />
     <Content Remove="EntregasApi.Migrator\**" />

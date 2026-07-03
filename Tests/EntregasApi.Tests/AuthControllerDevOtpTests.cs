@@ -18,7 +18,8 @@ public class AuthControllerDevOtpTests
     private static AuthController Build(
         AppDbContext ctx,
         string env = "Development",
-        string? configuredOtpCode = null)
+        string? configuredOtpCode = null,
+        IPhoneVerificationService? phoneVerification = null)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -30,7 +31,12 @@ public class AuthControllerDevOtpTests
             })
             .Build();
 
-        return new AuthController(ctx, new TokenService(config), new FakeHostEnvironment(env), config);
+        return new AuthController(
+            ctx,
+            new TokenService(config),
+            new FakeHostEnvironment(env),
+            config,
+            phoneVerification ?? new FakePhoneVerificationService());
     }
 
     [Fact]
@@ -89,7 +95,7 @@ public class AuthControllerDevOtpTests
     }
 
     [Fact]
-    public async Task VerifyPhoneOtp_InProduction_StaysNotImplemented()
+    public async Task VerifyPhoneOtp_InProduction_WithoutProvider_ReturnsServiceUnavailable()
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx, env: "Production");
@@ -97,7 +103,24 @@ public class AuthControllerDevOtpTests
         var result = await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("8681452290", "000000"));
 
         var obj = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(StatusCodes.Status501NotImplemented, obj.StatusCode);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, obj.StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifyPhoneOtp_InProduction_ApprovedByProvider_CreatesAccount()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var provider = new FakePhoneVerificationService(
+            configured: true,
+            checkOutcome: PhoneVerificationOutcome.Approved);
+        var controller = Build(ctx, env: "Production", phoneVerification: provider);
+
+        var result = await controller.VerifyPhoneOtp(
+            new VerifyPhoneLoginRequest("+52 868 145 2290", "123456"));
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.Equal("8681452290", account.Phone);
     }
 
     private sealed class FakeHostEnvironment : IHostEnvironment
@@ -107,5 +130,39 @@ public class AuthControllerDevOtpTests
         public string ApplicationName { get; set; } = "EntregasApi.Tests";
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class FakePhoneVerificationService(
+        bool configured = false,
+        PhoneVerificationOutcome checkOutcome = PhoneVerificationOutcome.Invalid)
+        : IPhoneVerificationService
+    {
+        public bool IsConfigured => configured;
+
+        public string? NormalizePhone(string? input)
+        {
+            var digits = TextNormalizer.NormalizePhone(input);
+            if (digits?.Length == 12 && digits.StartsWith("52", StringComparison.Ordinal))
+            {
+                return digits[2..];
+            }
+
+            return digits?.Length == 10 ? digits : null;
+        }
+
+        public Task<PhoneVerificationOutcome> SendCodeAsync(
+            string normalizedPhone,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(PhoneVerificationOutcome.Sent);
+        }
+
+        public Task<PhoneVerificationOutcome> CheckCodeAsync(
+            string normalizedPhone,
+            string code,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(checkOutcome);
+        }
     }
 }
