@@ -398,7 +398,8 @@ public record ClientOrderView(
     /// <summary>Fecha/hora real de la entrega o del intento fallido.</summary>
     DateTime? DeliveredAt = null,
     /// <summary>Fotos del intento de no entrega (cuando Status = NotDelivered).</summary>
-    List<string>? NonDeliveryEvidenceUrls = null
+    List<string>? NonDeliveryEvidenceUrls = null,
+    string? MercadoPagoPublicKey = null
 );
 
 // ── OrderPayment ──
@@ -1443,6 +1444,16 @@ public record UpdateBrandRequest(
     string? BrandAccentColor = null);
 
 public record BrandAssetDto(string Kind, string Url);
+
+public record MercadoPagoPaymentSettingsDto(
+    string? PublicKey,
+    bool HasAccessToken,
+    bool IsConfigured);
+
+public record UpdateMercadoPagoPaymentSettingsRequest(
+    string? PublicKey,
+    string? AccessToken = null,
+    bool ClearAccessToken = false);
 
 public record SubscriptionSummaryDto(
     string EffectivePlan,

@@ -61,6 +61,9 @@ public class Business
     /// </summary>
     public string? MercadoPagoAccessToken { get; set; }
 
+    [MaxLength(200)]
+    public string? MercadoPagoPublicKey { get; set; }
+
     [Required, MaxLength(40)]
     public string PlanTier { get; set; } = "Entrada";
 

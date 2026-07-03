@@ -85,7 +85,9 @@ public class PublicTandaController : ControllerBase
         var business = await _db.Businesses
             .AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == tanda.BusinessId);
-        if (business is null || string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken))
+        if (business is null ||
+            string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken) ||
+            string.IsNullOrWhiteSpace(business.MercadoPagoPublicKey))
         {
             return StatusCode(StatusCodes.Status409Conflict, new { message = CardPaymentsNotConfiguredMessage });
         }

@@ -15,14 +15,18 @@ namespace EntregasApi.Tests;
 
 public class AuthControllerDevOtpTests
 {
-    private static AuthController Build(AppDbContext ctx, string env = "Development")
+    private static AuthController Build(
+        AppDbContext ctx,
+        string env = "Development",
+        string? configuredOtpCode = null)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Jwt:Key"] = "test-signing-key-for-dev-otp-tests",
                 ["Jwt:Issuer"] = "tests",
-                ["Jwt:Audience"] = "tests"
+                ["Jwt:Audience"] = "tests",
+                ["Auth:DevOtpCode"] = configuredOtpCode
             })
             .Build();
 
@@ -69,6 +73,19 @@ public class AuthControllerDevOtpTests
 
         Assert.IsType<UnauthorizedObjectResult>(result.Result);
         Assert.Equal(0, await ctx.Accounts.CountAsync());
+    }
+
+    [Fact]
+    public async Task VerifyPhoneOtp_InvalidConfiguredCode_FallsBackToSixDigitDevCode()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx, configuredOtpCode: "not-a-six-digit-code");
+
+        var result = await controller.VerifyPhoneOtp(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(1, await ctx.Accounts.CountAsync());
     }
 
     [Fact]

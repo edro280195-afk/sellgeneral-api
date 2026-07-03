@@ -86,6 +86,7 @@ public class TandaViewDto
     public decimal WeeklyAmount { get; set; }
     public DateTime StartDate { get; set; }
     public int CurrentWeek { get; set; }
+    public string? MercadoPagoPublicKey { get; set; }
     public List<TandaParticipantViewDto> Participants { get; set; } = new();
 }
 

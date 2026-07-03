@@ -294,6 +294,13 @@ public class TandaService : ITandaService
         if (tanda == null) return null;
 
         int currentWeek = CalculateCurrentWeek(tanda.StartDate);
+        var mercadoPagoPublicKey = await _db.Businesses
+            .AsNoTracking()
+            .Where(b => b.Id == tanda.BusinessId &&
+                        b.MercadoPagoAccessToken != null &&
+                        b.MercadoPagoPublicKey != null)
+            .Select(b => b.MercadoPagoPublicKey)
+            .FirstOrDefaultAsync();
 
         return new TandaViewDto
         {
@@ -304,6 +311,7 @@ public class TandaService : ITandaService
             WeeklyAmount = tanda.WeeklyAmount,
             StartDate = tanda.StartDate,
             CurrentWeek = currentWeek,
+            MercadoPagoPublicKey = mercadoPagoPublicKey,
             Participants = tanda.Participants.Select(p => new TandaParticipantViewDto
             {
                 Id = p.Id,

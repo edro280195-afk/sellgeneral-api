@@ -59,6 +59,14 @@ public class ClientViewController : ControllerBase
         if (order.ExpiresAt < DateTime.UtcNow)
             return Gone("Este enlace ha expirado.");
 
+        var mercadoPagoPublicKey = await _db.Businesses
+            .AsNoTracking()
+            .Where(b => b.Id == order.BusinessId &&
+                        b.MercadoPagoAccessToken != null &&
+                        b.MercadoPagoPublicKey != null)
+            .Select(b => b.MercadoPagoPublicKey)
+            .FirstOrDefaultAsync();
+
         // Ubicación del repartidor
         DriverLocationDto? driverLocation = null;
         if (order.DeliveryRoute?.Status == RouteStatus.Active &&
@@ -158,7 +166,8 @@ public class ClientViewController : ControllerBase
             DeliveredAt: order.Delivery?.DeliveredAt,
             NonDeliveryEvidenceUrls: order.Delivery?.Evidences?
                 .Where(e => e.Type == EvidenceType.NonDeliveryProof)
-                .Select(e => e.ImagePath).ToList()
+                .Select(e => e.ImagePath).ToList(),
+            MercadoPagoPublicKey: mercadoPagoPublicKey
         ));
     }
 
@@ -340,7 +349,9 @@ public class ClientViewController : ControllerBase
         var business = await _db.Businesses
             .AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == order.BusinessId);
-        if (business is null || string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken))
+        if (business is null ||
+            string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken) ||
+            string.IsNullOrWhiteSpace(business.MercadoPagoPublicKey))
         {
             return StatusCode(StatusCodes.Status409Conflict, new { message = CardPaymentsNotConfiguredMessage });
         }

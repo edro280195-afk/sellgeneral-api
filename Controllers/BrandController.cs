@@ -180,6 +180,74 @@ public class BrandController : ControllerBase
             business.BrandAccentColor));
     }
 
+    [HttpGet("payment-settings")]
+    [BypassSubscriptionLock]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
+    public async Task<ActionResult<MercadoPagoPaymentSettingsDto>> GetPaymentSettings(
+        CancellationToken cancellationToken)
+    {
+        var business = await LoadActiveBusinessAsync(cancellationToken);
+        if (business is null)
+        {
+            return NotFound(new { message = "Negocio no encontrado." });
+        }
+
+        return Ok(ToPaymentSettingsDto(business));
+    }
+
+    [HttpPut("payment-settings")]
+    [BypassSubscriptionLock]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
+    public async Task<ActionResult<MercadoPagoPaymentSettingsDto>> UpdatePaymentSettings(
+        [FromBody] UpdateMercadoPagoPaymentSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var business = await LoadActiveBusinessAsync(cancellationToken);
+        if (business is null)
+        {
+            return NotFound(new { message = "Negocio no encontrado." });
+        }
+
+        var publicKey = request.PublicKey?.Trim();
+        if (publicKey?.Length > 200)
+        {
+            return BadRequest(new { message = "La Public Key no puede exceder 200 caracteres." });
+        }
+
+        if (!string.IsNullOrWhiteSpace(publicKey) && publicKey.Any(char.IsWhiteSpace))
+        {
+            return BadRequest(new { message = "La Public Key no puede contener espacios." });
+        }
+
+        var accessToken = request.AccessToken?.Trim();
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            if (accessToken.Length > 500)
+            {
+                return BadRequest(new { message = "El Access Token no puede exceder 500 caracteres." });
+            }
+
+            if (accessToken.Any(char.IsWhiteSpace))
+            {
+                return BadRequest(new { message = "El Access Token no puede contener espacios." });
+            }
+        }
+
+        business.MercadoPagoPublicKey = string.IsNullOrWhiteSpace(publicKey) ? null : publicKey;
+
+        if (request.ClearAccessToken)
+        {
+            business.MercadoPagoAccessToken = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            business.MercadoPagoAccessToken = accessToken;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return Ok(ToPaymentSettingsDto(business));
+    }
+
     private async Task<ActionResult<BrandAssetDto>> UploadAsync(
         IFormFile? file,
         BrandAssetKind kind,
@@ -274,6 +342,19 @@ public class BrandController : ControllerBase
                      $"{match.Groups["g"].Value.ToUpperInvariant()}" +
                      $"{match.Groups["b"].Value.ToUpperInvariant()}";
         return true;
+    }
+
+    private static MercadoPagoPaymentSettingsDto ToPaymentSettingsDto(Business business)
+    {
+        var hasAccessToken = !string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken);
+        var publicKey = string.IsNullOrWhiteSpace(business.MercadoPagoPublicKey)
+            ? null
+            : business.MercadoPagoPublicKey;
+
+        return new MercadoPagoPaymentSettingsDto(
+            publicKey,
+            hasAccessToken,
+            hasAccessToken && publicKey is not null);
     }
 
     private enum BrandAssetKind

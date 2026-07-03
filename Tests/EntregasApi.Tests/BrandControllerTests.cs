@@ -251,6 +251,69 @@ public class BrandControllerTests
     }
 
     [Fact]
+    public async Task PaymentSettings_AreScopedToActiveBusiness_AndDoNotExposeAccessToken()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var target = await SeedAsync(ctx, PlanTiers.Pro, SubscriptionStatus.Active, slug: "target");
+        var other = await SeedAsync(ctx, PlanTiers.Pro, SubscriptionStatus.Active, slug: "other");
+        other.MercadoPagoPublicKey = "OTHER-PUBLIC";
+        other.MercadoPagoAccessToken = "OTHER-SECRET";
+        await ctx.SaveChangesAsync();
+
+        var controller = BuildController(ctx, target.Id, new StubCloudinary(),
+            new FakeEntitlementService(isLocked: false));
+
+        var update = await controller.UpdatePaymentSettings(
+            new UpdateMercadoPagoPaymentSettingsRequest(
+                PublicKey: "TARGET-PUBLIC",
+                AccessToken: "TARGET-SECRET"),
+            default);
+
+        var ok = Assert.IsType<OkObjectResult>(update.Result);
+        var dto = Assert.IsType<MercadoPagoPaymentSettingsDto>(ok.Value);
+        Assert.Equal("TARGET-PUBLIC", dto.PublicKey);
+        Assert.True(dto.HasAccessToken);
+        Assert.True(dto.IsConfigured);
+        Assert.DoesNotContain("TARGET-SECRET", dto.ToString());
+
+        var storedTarget = await ctx.Businesses.FindAsync(target.Id);
+        var storedOther = await ctx.Businesses.FindAsync(other.Id);
+        Assert.Equal("TARGET-SECRET", storedTarget!.MercadoPagoAccessToken);
+        Assert.Equal("TARGET-PUBLIC", storedTarget.MercadoPagoPublicKey);
+        Assert.Equal("OTHER-SECRET", storedOther!.MercadoPagoAccessToken);
+        Assert.Equal("OTHER-PUBLIC", storedOther.MercadoPagoPublicKey);
+    }
+
+    [Fact]
+    public async Task PaymentSettings_CanClearCredentials()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = await SeedAsync(ctx, PlanTiers.Pro, SubscriptionStatus.Active);
+        business.MercadoPagoPublicKey = "PUBLIC";
+        business.MercadoPagoAccessToken = "SECRET";
+        await ctx.SaveChangesAsync();
+
+        var controller = BuildController(ctx, business.Id, new StubCloudinary(),
+            new FakeEntitlementService(isLocked: false));
+
+        var update = await controller.UpdatePaymentSettings(
+            new UpdateMercadoPagoPaymentSettingsRequest(
+                PublicKey: "",
+                ClearAccessToken: true),
+            default);
+
+        var ok = Assert.IsType<OkObjectResult>(update.Result);
+        var dto = Assert.IsType<MercadoPagoPaymentSettingsDto>(ok.Value);
+        Assert.Null(dto.PublicKey);
+        Assert.False(dto.HasAccessToken);
+        Assert.False(dto.IsConfigured);
+
+        var stored = await ctx.Businesses.FindAsync(business.Id);
+        Assert.Null(stored!.MercadoPagoPublicKey);
+        Assert.Null(stored.MercadoPagoAccessToken);
+    }
+
+    [Fact]
     public void TryValidateHexColor_AcceptsAndNormalizesHex()
     {
         Assert.True(BrandController.TryValidateHexColor("#ff0072", out var n1));

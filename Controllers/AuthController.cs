@@ -40,7 +40,16 @@ public class AuthController : ControllerBase
         _env.IsDevelopment() ||
         string.Equals(_config["Auth:DevOtpEnabled"], "true", StringComparison.OrdinalIgnoreCase);
 
-    private string DevOtpCode => _config["Auth:DevOtpCode"] ?? "000000";
+    private string DevOtpCode
+    {
+        get
+        {
+            var configured = _config["Auth:DevOtpCode"]?.Trim();
+            return configured is { Length: 6 } && configured.All(char.IsDigit)
+                ? configured
+                : "000000";
+        }
+    }
 
     [HttpPost("register")]
     public async Task<ActionResult<LoginResponse>> Register(RegisterRequest req)
