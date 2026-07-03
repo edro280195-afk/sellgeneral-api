@@ -15,12 +15,15 @@ namespace EntregasApi.Controllers;
 [Route("api/pedido/{accessToken}")]
 public class ClientViewController : ControllerBase
 {
+    private const string CardPaymentsNotConfiguredMessage =
+        "Esta tienda aun no tiene pagos con tarjeta configurados. Usa efectivo, transferencia u otro metodo acordado con la tienda.";
+
     private readonly AppDbContext _db;
     private readonly IHubContext<DeliveryHub> _hub;
     private readonly IPushNotificationService _push;
     private readonly ICamiService _cami;
     private readonly ICurrentTenant _tenant;
-    private readonly ICurrentBusiness _currentBusiness;
+    private readonly IConfiguration _config;
 
     public ClientViewController(
         AppDbContext db,
@@ -28,14 +31,14 @@ public class ClientViewController : ControllerBase
         IPushNotificationService push,
         ICamiService cami,
         ICurrentTenant tenant,
-        ICurrentBusiness currentBusiness)
+        IConfiguration config)
     {
         _db = db;
         _hub = hub;
         _push = push;
         _cami = cami;
         _tenant = tenant;
-        _currentBusiness = currentBusiness;
+        _config = config;
     }
 
     /// <summary>GET /api/pedido/{token} - Vista pública del pedido</summary>
@@ -311,13 +314,14 @@ public class ClientViewController : ControllerBase
     public async Task<ActionResult<CardPaymentResultDto>> PayWithCard(
         string accessToken,
         [FromBody] CardPaymentRequest req,
-        [FromServices] IHttpClientFactory httpClientFactory,
-        [FromServices] IConfiguration config)
+        [FromServices] IHttpClientFactory httpClientFactory)
     {
         if (string.IsNullOrWhiteSpace(req.CardToken) ||
             string.IsNullOrWhiteSpace(req.PaymentMethodId) ||
             req.Installments < 1)
+        {
             return BadRequest(new { message = "Datos de pago incompletos." });
+        }
 
         var order = await _db.Orders
             .Include(o => o.Payments)
@@ -327,33 +331,39 @@ public class ClientViewController : ControllerBase
         if (order == null) return NotFound(new { message = "Pedido no encontrado." });
         if (order.ExpiresAt < DateTime.UtcNow) return StatusCode(410, new { message = "Este enlace ha expirado." });
 
-        // El monto viene SIEMPRE del servidor, nunca del cliente
         var balanceDue = order.BalanceDue;
         if (balanceDue <= 0)
-            return BadRequest(new { message = "Este pedido ya está liquidado." });
+        {
+            return BadRequest(new { message = "Este pedido ya esta liquidado." });
+        }
 
-        var mpAccessToken = config["MercadoPago:AccessToken"]
-            ?? throw new InvalidOperationException("MercadoPago:AccessToken no configurado.");
+        var business = await _db.Businesses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == order.BusinessId);
+        if (business is null || string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken))
+        {
+            return StatusCode(StatusCodes.Status409Conflict, new { message = CardPaymentsNotConfiguredMessage });
+        }
+
         var idempotencyKey = Guid.NewGuid().ToString();
 
         using var httpClient = httpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {mpAccessToken}");
+        httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {business.MercadoPagoAccessToken}");
         httpClient.DefaultRequestHeaders.Add("X-Idempotency-Key", idempotencyKey);
 
-        // Armar issuer_id solo si viene y es numérico
         long? issuerId = long.TryParse(req.IssuerId, out var parsed) ? parsed : null;
-
         var paymentBody = new
         {
             transaction_amount = balanceDue,
             token = req.CardToken,
-            description = $"Pedido #{order.Id} - {_currentBusiness.Current.Name}",
+            description = $"Pedido #{order.Id} - {business.Name}",
             installments = req.Installments,
             payment_method_id = req.PaymentMethodId,
             issuer_id = issuerId,
-            payer = new { email = "pagos@regibazar.com" },
+            payer = new { email = $"pagos+business-{business.Id}@sellgeneral.app" },
             external_reference = $"order_{order.Id}",
-            metadata = new { order_id = order.Id, type = "order_payment" }
+            notification_url = BuildTenantPaymentWebhookUrl(business.Id),
+            metadata = new { order_id = order.Id, business_id = business.Id, type = "order_payment" }
         };
 
         HttpResponseMessage httpResponse;
@@ -370,23 +380,9 @@ public class ClientViewController : ControllerBase
         var rawBody = await httpResponse.Content.ReadAsStringAsync();
         Console.WriteLine($"[MercadoPago] HTTP {(int)httpResponse.StatusCode}: {rawBody}");
 
-        // Si MP devuelve error HTTP (4xx/5xx), parseamos su mensaje y lo devolvemos
         if (!httpResponse.IsSuccessStatusCode)
         {
-            string mpErrorMsg = "Error al procesar el pago con Mercado Pago.";
-            try
-            {
-                var errDoc = System.Text.Json.JsonDocument.Parse(rawBody);
-                if (errDoc.RootElement.TryGetProperty("message", out var msgEl))
-                    mpErrorMsg = msgEl.GetString() ?? mpErrorMsg;
-                if (errDoc.RootElement.TryGetProperty("cause", out var causeEl) && causeEl.GetArrayLength() > 0)
-                {
-                    var desc = causeEl[0].TryGetProperty("description", out var d) ? d.GetString() : null;
-                    if (!string.IsNullOrEmpty(desc)) mpErrorMsg = desc;
-                }
-            }
-            catch { }
-            return StatusCode(502, new { message = mpErrorMsg });
+            return StatusCode(502, new { message = ReadMercadoPagoError(rawBody) });
         }
 
         MpPaymentApiResponse? mpResult;
@@ -402,13 +398,15 @@ public class ClientViewController : ControllerBase
         }
 
         if (mpResult == null)
+        {
             return StatusCode(502, new { message = "Error al procesar la respuesta de Mercado Pago." });
+        }
 
-        // Registrar pago solo si fue aprobado o en revisión
         if (mpResult.Status is "approved" or "in_process")
         {
             var payment = new OrderPayment
             {
+                BusinessId = order.BusinessId,
                 OrderId = order.Id,
                 Amount = balanceDue,
                 Method = "Tarjeta",
@@ -417,8 +415,6 @@ public class ClientViewController : ControllerBase
             };
             _db.OrderPayments.Add(payment);
 
-            // Si el pago fue completamente aprobado y el pedido aún no está en camino
-            // ni entregado, lo confirmamos para que quede listo para entrega
             if (mpResult.Status == "approved" &&
                 order.Status is Models.OrderStatus.Pending or
                                Models.OrderStatus.Postponed or
@@ -429,7 +425,7 @@ public class ClientViewController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new
+            await _hub.Clients.Group(SignalRGroupNames.Admins(order.BusinessId)).SendAsync("DeliveryUpdate", new
             {
                 OrderId = order.Id,
                 Status = order.Status.ToString(),
@@ -440,16 +436,16 @@ public class ClientViewController : ControllerBase
 
             var clientName = order.Client?.Name ?? "Clienta";
             await _push.SendNotificationToAdminsAsync(
-                $"💳 {clientName} pagó ${balanceDue:F2} con tarjeta",
-                $"Pedido #{order.Id} liquidado y listo para entrega 🛵",
+                $"Pago con tarjeta: {clientName}",
+                $"Pedido #{order.Id} liquidado por ${balanceDue:F2}.",
                 tag: "card-payment");
         }
 
         var message = mpResult.Status switch
         {
-            "approved"   => "¡Pago aprobado con éxito! 🎉",
-            "in_process" => "Tu pago está en revisión. Recibirás confirmación pronto.",
-            "pending"    => "Pago pendiente de confirmación.",
+            "approved"   => "Pago aprobado con exito.",
+            "in_process" => "Tu pago esta en revision. Recibiras confirmacion pronto.",
+            "pending"    => "Pago pendiente de confirmacion.",
             "rejected"   => GetRejectionMessage(mpResult.StatusDetail),
             _            => "No se pudo procesar el pago. Intenta con otra tarjeta."
         };
@@ -457,17 +453,52 @@ public class ClientViewController : ControllerBase
         return Ok(new CardPaymentResultDto(mpResult.Status, mpResult.StatusDetail, balanceDue, message, mpResult.Id));
     }
 
+    private string BuildTenantPaymentWebhookUrl(int businessId)
+    {
+        var configuredBaseUrl = _config["App:BackendUrl"]?.TrimEnd('/');
+        var baseUrl = string.IsNullOrWhiteSpace(configuredBaseUrl)
+            ? $"{Request.Scheme}://{Request.Host}{Request.PathBase}"
+            : configuredBaseUrl;
+
+        return $"{baseUrl}/api/payments/webhook?businessId={businessId}";
+    }
+
+    private static string ReadMercadoPagoError(string rawBody)
+    {
+        var mpErrorMsg = "Error al procesar el pago con Mercado Pago.";
+        try
+        {
+            var errDoc = System.Text.Json.JsonDocument.Parse(rawBody);
+            if (errDoc.RootElement.TryGetProperty("message", out var msgEl))
+            {
+                mpErrorMsg = msgEl.GetString() ?? mpErrorMsg;
+            }
+
+            if (errDoc.RootElement.TryGetProperty("cause", out var causeEl) && causeEl.GetArrayLength() > 0)
+            {
+                var desc = causeEl[0].TryGetProperty("description", out var d) ? d.GetString() : null;
+                if (!string.IsNullOrEmpty(desc)) mpErrorMsg = desc;
+            }
+        }
+        catch
+        {
+            // Mantener mensaje generico si Mercado Pago responde algo no JSON.
+        }
+
+        return mpErrorMsg;
+    }
+
     private static string GetRejectionMessage(string statusDetail) => statusDetail switch
     {
-        "cc_rejected_insufficient_amount"    => "Fondos insuficientes. Verifica tu saldo.",
-        "cc_rejected_bad_filled_card_number" => "Número de tarjeta incorrecto.",
-        "cc_rejected_bad_filled_date"        => "Fecha de vencimiento incorrecta.",
-        "cc_rejected_bad_filled_security_code" => "Código de seguridad incorrecto.",
-        "cc_rejected_blacklist"              => "Tarjeta no autorizada. Intenta con otra.",
-        "cc_rejected_call_for_authorize"     => "Tu banco requiere autorización. Llama a tu banco.",
-        "cc_rejected_card_disabled"          => "Tarjeta deshabilitada. Comunícate con tu banco.",
-        "cc_rejected_duplicated_payment"     => "Pago duplicado detectado.",
-        _                                    => "Pago rechazado. Intenta con otra tarjeta o método de pago."
+        "cc_rejected_insufficient_amount" => "Fondos insuficientes. Verifica tu saldo.",
+        "cc_rejected_bad_filled_card_number" => "Numero de tarjeta incorrecto.",
+        "cc_rejected_bad_filled_date" => "Fecha de vencimiento incorrecta.",
+        "cc_rejected_bad_filled_security_code" => "Codigo de seguridad incorrecto.",
+        "cc_rejected_blacklist" => "Tarjeta no autorizada. Intenta con otra.",
+        "cc_rejected_call_for_authorize" => "Tu banco requiere autorizacion. Llama a tu banco.",
+        "cc_rejected_card_disabled" => "Tarjeta deshabilitada. Comunicate con tu banco.",
+        "cc_rejected_duplicated_payment" => "Pago duplicado detectado.",
+        _ => "Pago rechazado. Intenta con otra tarjeta o metodo de pago."
     };
 
     private ObjectResult Gone(string message)

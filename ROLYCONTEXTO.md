@@ -249,11 +249,11 @@ El cobro de la mensualidad de la vendedora, con las credenciales de PLATAFORMA (
 Integra el COBRO de la mensualidad de la vendedora con el producto de Suscripciones (preapproval) de Mercado Pago. IMPORTANTE: verifica la API vigente de preapproval en la doc oficial de MP antes de implementar; los campos/endpoints de suscripciones cambian, no asumas el shape de memoria.
 
 DISTINCIÓN CRÍTICA — dos integraciones MP, NO las confundas:
-- Business.MercadoPagoAccessToken (per-tenant): la VENDEDORA cobra a SUS clientas. YA existe. NO se usa aquí.
-- Credenciales de PLATAFORMA (tuyas, nuevas: Platform:MercadoPago:AccessToken/PublicKey, global): con estas TÚ cobras a la VENDEDORA. La suscripción se crea SIEMPRE con las de plataforma. Con el token del tenant, la vendedora se cobraría a sí misma: inválido.
+- Business.MercadoPagoAccessToken (per-tenant): la VENDEDORA cobra a SUS clientas. Pedidos/tandas usan este token y la webhook one-time viaja con `businessId`.
+- Credenciales de PLATAFORMA (Platform:MercadoPago:AccessToken/PublicKey, global): solo sirven si existe una cuenta de plataforma propia. No publicar credenciales personales.
 
 1) Al CONVERTIR (día 14, cuando el owner elige plan y mete tarjeta): crea un preapproval con credenciales de PLATAFORMA, monto = precio del plan (Entrada 129 / Pro 250 / Elite 460 MXN, configurables), frecuencia mensual. Captura de tarjeta por el flujo de MP (no almacenes tarjeta tú). Como NO se pidió tarjeta al inicio, la prueba no fue free_trial de MP: la suscripción se crea fresca aquí y empieza a cobrar. Al crear OK: SubscriptionStatus=Active, PlanTier=plan elegido, CurrentPeriodEndsAt=+1 mes, guarda PreapprovalId.
-2) Webhook: EXTIENDE PaymentsWebhookController (ya maneja pagos one-time de pedidos/tandas) o agrega uno para eventos de preapproval/authorized_payment, validado con credenciales de plataforma. Mapear: cobro recurrente OK -> Active, CurrentPeriodEndsAt += 1 mes; cobro fallido -> PastDue (dispara gracia de 1.2); cancelado / N fallos -> Canceled/Expired -> bloqueo.
+2) Webhook: PaymentsWebhookController atiende eventos de preapproval/authorized_payment de plataforma y eventos payment one-time con `?businessId=` para usar el token del tenant. Mapear: cobro recurrente OK -> Active, CurrentPeriodEndsAt += 1 mes; cobro fallido -> PastDue (dispara gracia de 1.2); cancelado / N fallos -> Canceled/Expired -> bloqueo.
 3) Cambio de plan: upgrade -> ajusta monto del preapproval (o cancela+recrea según permita la API vigente), inmediato. Downgrade -> al fin del periodo.
 4) Cancelación: el owner cancela -> cancela el preapproval en MP, activo hasta CurrentPeriodEndsAt, luego bloqueo.
 5) Ofrece periodicidad trimestral/anual con descuento además de mensual (estructura; el precio lo afina el negocio) para bajar churn por tarjetas que fallan.

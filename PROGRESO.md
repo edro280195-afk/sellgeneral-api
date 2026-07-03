@@ -46,7 +46,7 @@ Tracker de avance sobre el plan `ROLYCONTEXTO.md`.
 | 1.0 | Motor de entitlements | Hecho | `Feature`, `LimitKey`, `SubscriptionStatus`, `PlanCatalog`, `IEntitlementService`, `[RequiresFeature]`, limites y plan efectivo por request. Migracion `EntitlementsFase10` aplicada en DEV. |
 | 1.1 | Cablear gates a features | Hecho | Gates en Financials, Tandas/Raffles, POS, C.A.M.I., Facebook import/deduplicacion, Exports, GPS en vivo, optimizacion de rutas y `MaxDrivers`. Links publicos siguen sin gate. |
 | 1.2 | Ciclo de vida de prueba + alta + bloqueo | Hecho | `POST /api/business` crea Business y membership Owner con `Trialing(Pro)` 14d sin tarjeta. `GET /api/business/account-status` / `subscription/status` devuelve estado para banner/muro. `SubscriptionLockMiddleware` da 402 a endpoints autenticados bloqueados y permite links publicos por token. Trial/PastDue vencidos recalculan perezosamente a `Expired`. Cambio de plan con upgrade inmediato y downgrade pendiente al fin de periodo. Migracion `SubscriptionLifecycleFase12` aplicada en DEV. |
-| 1.3 | Suscripcion con Mercado Pago (`preapproval`) | Hecho | Credenciales de plataforma (no per-tenant) en `Platform:MercadoPago`. `PlanCatalog` con precios 129/250/460 MXN y descuentos trimestral -10% / anual -20%. `IMercadoPagoSubscriptionService` crea/actualiza/cancela con auto_recurring y start_date = fin del trial. `SubscriptionController` expone `GET preapproval/public-key`, `GET pricing`, `POST/PUT/DELETE preapproval`. Upgrade inmediato ajusta monto y reactivacion si estaba bloqueada; downgrade aplica periodicidad ya y programa plan al fin del periodo. Cancelacion deja `SubscriptionStatus=Canceled` con `CancellationEffectiveAt = CurrentPeriodEndsAt`. Webhook de plataforma extendido en `PaymentsWebhookController` valida firma x-signature (HMAC-SHA256 sobre `id:..;request-id:..;ts:..;`), acepta `preapproval` y `authorized_payment`: `authorized`/`approved` -> Active, `cancelled` -> Canceled, `paused`/`rejected`/`failed` -> PastDue (dispara gracia 1.2). Migracion `SubscriptionMpPreapprovalFase13` aplicada en DEV. |
+| 1.3 | Suscripcion con Mercado Pago (`preapproval`) | Pausado | El codigo de suscripciones de plataforma existe, pero NO publicar credenciales `Platform:MercadoPago` hasta tener una cuenta de plataforma propia. Pagos one-time de pedidos/tandas usan `Business.MercadoPagoAccessToken` por tenant; no existe `MercadoPago:AccessToken` global para cobrar clientas. |
 
 ## Validacion 1.0
 
@@ -168,6 +168,6 @@ E2E contra API local + base DEV:
 - Connection string DEV: `appsettings.Development.json` (Neon branch de desarrollo, no produccion).
 - Stack: .NET 8 / EF Core 8 / PostgreSQL 17 (Neon) / SignalR.
 - Credenciales de MP:
-  - Plataforma (cobro suscripcion vendedoras) en `Platform:MercadoPago:AccessToken/PublicKey/WebhookSecret`.
-  - Per-tenant (cobro clientas) sigue en `MercadoPago:AccessToken` y `Business.MercadoPagoAccessToken` (encriptado).
+  - No publicar `MercadoPago:AccessToken/PublicKey` global. Pagos de pedidos/tandas cobran con `Business.MercadoPagoAccessToken` por tenant y webhook con `businessId`.
+  - No publicar `Platform:MercadoPago:AccessToken/PublicKey/WebhookSecret` si esas llaves pertenecen a una cuenta personal. Usar solo cuando exista una cuenta de plataforma propia.
 - Regla del plan: validar antes de avanzar al siguiente paso.

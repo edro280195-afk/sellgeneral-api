@@ -1,5 +1,3 @@
-using System.Net.Http;
-using System.Security.Claims;
 using EntregasApi.Controllers;
 using EntregasApi.Data;
 using EntregasApi.Hubs;
@@ -216,6 +214,27 @@ public class SubscriptionMpWebhookTests
         Assert.Equal(SubscriptionStatus.Active, stored!.SubscriptionStatus);
     }
 
+    [Fact]
+    public async Task OneTimePaymentWebhook_WithoutBusinessId_IsIgnoredAndReturns200()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var handler = new RecordingHandler();
+        var controller = Build(
+            ctx,
+            new StubMpPlatform(),
+            includeSignatureHeader: false,
+            httpHandler: handler);
+
+        var result = await controller.HandleWebhook(new PaymentsWebhookController.MpWebhookNotification
+        {
+            Type = "payment",
+            Data = new PaymentsWebhookController.MpWebhookData { Id = "PAY-1" }
+        });
+
+        Assert.IsType<OkResult>(result);
+        Assert.Empty(handler.Sent);
+    }
+
     private static async Task<Business> SeedAsync(
         AppDbContext ctx,
         SubscriptionStatus status,
@@ -250,24 +269,22 @@ public class SubscriptionMpWebhookTests
         AppDbContext ctx,
         IMercadoPagoSubscriptionService mp,
         bool includeSignatureHeader,
-        string webhookSecret = "dummy")
+        string webhookSecret = "dummy",
+        RecordingHandler? httpHandler = null)
     {
-        var tenant = new TestCurrentTenant(1);
+        httpHandler ??= new RecordingHandler();
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Platform:MercadoPago:WebhookSecret"] = webhookSecret,
-                ["MercadoPago:AccessToken"] = "TEST"
+                ["Platform:MercadoPago:WebhookSecret"] = webhookSecret
             })
             .Build();
 
         var controller = new PaymentsWebhookController(
             ctx,
             new NullHubContext<DeliveryHub>(),
-            new NullPushService(),
-            new SimpleHttpClientFactory(new RecordingHandler()),
+            new SimpleHttpClientFactory(httpHandler),
             config,
-            tenant,
             mp,
             new FixedTimeProvider(Now),
             NullLogger<PaymentsWebhookController>.Instance);
@@ -281,14 +298,6 @@ public class SubscriptionMpWebhookTests
         controller.ControllerContext = new ControllerContext { HttpContext = http };
 
         return controller;
-    }
-
-    private sealed class TestCurrentTenant : ICurrentTenant
-    {
-        public TestCurrentTenant(int businessId) { ActiveBusinessId = businessId; }
-        public int ActiveBusinessId { get; private set; }
-        public bool IsResolved => true;
-        public void SetBusiness(int businessId) => ActiveBusinessId = businessId;
     }
 
     private sealed class FixedTimeProvider : TimeProvider
@@ -367,18 +376,4 @@ internal sealed class NullClientProxy : IClientProxy
 {
     public Task SendCoreAsync(string method, object?[] args, CancellationToken ct = default) => Task.CompletedTask;
     public Task SendCoreAsync(string method, object?[] args, CancellationToken ct, System.Collections.Generic.IReadOnlyList<string>? excluded = null) => Task.CompletedTask;
-}
-
-internal sealed class NullPushService : IPushNotificationService
-{
-    public Task SendNotificationToClientAsync(int clientId, string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
-    public Task SendNotificationToDriverAsync(string routeToken, string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
-    public Task SendNotificationToAdminsAsync(string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
-    public Task NotifyClientDriverEnRouteAsync(int clientId, string? driverName = null) => Task.CompletedTask;
-    public Task NotifyClientDriverNearbyAsync(int clientId, int distanceMeters) => Task.CompletedTask;
-    public Task NotifyClientDeliveredAsync(int clientId) => Task.CompletedTask;
-    public Task NotifyChatMessageAsync(string targetRole, int? clientId, string? routeToken, string senderName, string messageText) => Task.CompletedTask;
-    public Task NotifyDriversNewRouteAsync(string routeName, string driverToken, int deliveryCount) => Task.CompletedTask;
-    public Task NotifyDriverFcmAsync(string driverRouteToken, string title, string body, Dictionary<string, string>? data = null) => Task.CompletedTask;
-    public Task BroadcastToAllDriversAsync(string title, string body, Dictionary<string, string>? data = null) => Task.CompletedTask;
 }

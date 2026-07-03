@@ -17,10 +17,8 @@ public class PaymentsWebhookController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<DeliveryHub> _hub;
-    private readonly IPushNotificationService _push;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _config;
-    private readonly ICurrentTenant _tenant;
     private readonly IMercadoPagoSubscriptionService _mpPlatform;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<PaymentsWebhookController> _logger;
@@ -28,20 +26,16 @@ public class PaymentsWebhookController : ControllerBase
     public PaymentsWebhookController(
         AppDbContext db,
         IHubContext<DeliveryHub> hub,
-        IPushNotificationService push,
         IHttpClientFactory httpClientFactory,
         IConfiguration config,
-        ICurrentTenant tenant,
         IMercadoPagoSubscriptionService mpPlatform,
         TimeProvider timeProvider,
         ILogger<PaymentsWebhookController> logger)
     {
         _db = db;
         _hub = hub;
-        _push = push;
         _httpClientFactory = httpClientFactory;
         _config = config;
-        _tenant = tenant;
         _mpPlatform = mpPlatform;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -75,14 +69,15 @@ public class PaymentsWebhookController : ControllerBase
             return await HandlePlatformWebhookAsync(notification, default);
         }
 
-        // Pagos one-time (pedidos y tandas): se cobran con la credencial del
-        // tenant, igual que antes de 1.3.
+        // Pagos one-time (pedidos y tandas): se consulta MP con la credencial
+        // del negocio indicada en notification_url (?businessId=), nunca con
+        // MercadoPago:AccessToken global.
         if (!string.Equals(notification.Type, "payment", StringComparison.OrdinalIgnoreCase))
         {
             return Ok();
         }
 
-        return await HandleOneTimePaymentAsync(notification.Data.Id);
+        return await HandleOneTimePaymentAsync(notification.Data.Id, HttpContext.RequestAborted);
     }
 
     private bool ValidatePlatformSignature(MpWebhookNotification notification)
@@ -130,83 +125,117 @@ public class PaymentsWebhookController : ControllerBase
         return Ok();
     }
 
-    private async Task<IActionResult> HandleOneTimePaymentAsync(string paymentId)
+    private async Task<IActionResult> HandleOneTimePaymentAsync(
+        string paymentId,
+        CancellationToken cancellationToken)
     {
-        var mpAccessToken = _config["MercadoPago:AccessToken"];
-        if (string.IsNullOrEmpty(mpAccessToken))
+        if (!int.TryParse(Request.Query["businessId"].ToString(), out var businessId))
         {
-            Console.WriteLine("[Webhook] Error: MercadoPago:AccessToken no configurado.");
+            _logger.LogWarning(
+                "[Webhook] Evento payment {PaymentId} sin businessId. Se ignora para evitar usar credenciales globales.",
+                paymentId);
+            return Ok();
+        }
+
+        var business = await _db.Businesses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == businessId, cancellationToken);
+        if (business is null || string.IsNullOrWhiteSpace(business.MercadoPagoAccessToken))
+        {
+            _logger.LogWarning(
+                "[Webhook] Evento payment {PaymentId} para business {BusinessId} sin token de Mercado Pago.",
+                paymentId,
+                businessId);
             return Ok();
         }
 
         using var client = _httpClientFactory.CreateClient();
-        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {mpAccessToken}");
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {business.MercadoPagoAccessToken}");
 
         try
         {
-            var response = await client.GetAsync($"https://api.mercadopago.com/v1/payments/{paymentId}");
+            var response = await client.GetAsync(
+                $"https://api.mercadopago.com/v1/payments/{paymentId}",
+                cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"[Webhook] Error al consultar pago {paymentId}: {response.StatusCode}");
+                _logger.LogWarning(
+                    "[Webhook] Error al consultar pago {PaymentId} de business {BusinessId}: {StatusCode}",
+                    paymentId,
+                    businessId,
+                    response.StatusCode);
                 return Ok();
             }
 
-            var rawBody = await response.Content.ReadAsStringAsync();
-            var mpPayment = System.Text.Json.JsonSerializer.Deserialize<MpPaymentDetail>(rawBody, new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var mpPayment = System.Text.Json.JsonSerializer.Deserialize<MpPaymentDetail>(
+                rawBody,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            if (mpPayment == null || string.IsNullOrEmpty(mpPayment.ExternalReference))
+            if (mpPayment == null || string.IsNullOrWhiteSpace(mpPayment.ExternalReference))
             {
-                Console.WriteLine($"[Webhook] Pago {paymentId} no tiene external_reference.");
+                _logger.LogWarning("[Webhook] Pago {PaymentId} no tiene external_reference.", paymentId);
                 return Ok();
             }
 
-            if (mpPayment.ExternalReference.StartsWith("order_"))
+            if (mpPayment.ExternalReference.StartsWith("order_", StringComparison.OrdinalIgnoreCase))
             {
-                await ProcessOrderPayment(mpPayment);
+                await ProcessOrderPaymentAsync(mpPayment, businessId, cancellationToken);
             }
-            else if (mpPayment.ExternalReference.StartsWith("tanda_"))
+            else if (mpPayment.ExternalReference.StartsWith("tanda_", StringComparison.OrdinalIgnoreCase))
             {
-                await ProcessTandaPayment(mpPayment);
+                await ProcessTandaPaymentAsync(mpPayment, businessId, cancellationToken);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Webhook] Excepción procesando pago {paymentId}: {ex.Message}");
+            _logger.LogError(ex, "[Webhook] Excepcion procesando pago {PaymentId}", paymentId);
         }
 
         return Ok();
     }
 
-    private async Task ProcessTandaPayment(MpPaymentDetail mpPayment)
+    private async Task ProcessTandaPaymentAsync(
+        MpPaymentDetail mpPayment,
+        int businessId,
+        CancellationToken cancellationToken)
     {
-        // Format: tanda_{tandaId}_{participantId}_{weekNumber}
         var parts = mpPayment.ExternalReference?.Split('_');
         if (parts == null || parts.Length < 4) return;
 
-        if (!Guid.TryParse(parts[1], out Guid tandaId) || 
-            !Guid.TryParse(parts[2], out Guid participantId) ||
-            !int.TryParse(parts[3], out int week))
+        if (!Guid.TryParse(parts[1], out var tandaId) ||
+            !Guid.TryParse(parts[2], out var participantId) ||
+            !int.TryParse(parts[3], out var week))
+        {
             return;
+        }
 
-        if (mpPayment.Status != "approved") return;
+        if (!string.Equals(mpPayment.Status, "approved", StringComparison.OrdinalIgnoreCase)) return;
 
         var participant = await _db.TandaParticipants
-            .Include(p => p.Payments)
+            .IgnoreQueryFilters()
             .Include(p => p.Tanda)
             .Include(p => p.Client)
-            .FirstOrDefaultAsync(p => p.Id == participantId);
+            .FirstOrDefaultAsync(
+                p => p.Id == participantId && p.BusinessId == businessId,
+                cancellationToken);
 
         if (participant == null) return;
 
-        // Verificar duplicados
-        var existing = participant.Payments.Any(p => p.WeekNumber == week && p.Notes != null && p.Notes.Contains($"MP#{mpPayment.Id}"));
+        var existing = await _db.TandaPayments
+            .IgnoreQueryFilters()
+            .AnyAsync(
+                p => p.BusinessId == businessId &&
+                     p.ParticipantId == participantId &&
+                     p.WeekNumber == week &&
+                     p.Notes != null &&
+                     p.Notes.Contains($"MP#{mpPayment.Id}"),
+                cancellationToken);
         if (existing) return;
 
         var payment = new TandaPayment
         {
+            BusinessId = businessId,
             ParticipantId = participant.Id,
             WeekNumber = week,
             AmountPaid = mpPayment.TransactionAmount,
@@ -216,50 +245,57 @@ public class PaymentsWebhookController : ControllerBase
         };
 
         _db.TandaPayments.Add(payment);
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
-        // Notificar a Admins
         var clientName = participant.Client?.Name ?? "Participante";
-        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new {
+        await _hub.Clients.Group(SignalRGroupNames.Admins(businessId)).SendAsync("DeliveryUpdate", new
+        {
             TandaId = tandaId,
             ParticipantName = clientName,
             Amount = mpPayment.TransactionAmount,
             Type = "tanda_card_payment_webhook"
-        });
-
-        await _push.SendNotificationToAdminsAsync(
-            $"💎 Pago Tanda (Webhook): ${mpPayment.TransactionAmount:F2}",
-            $"{clientName} pagó la semana {week} de {participant.Tanda?.Name ?? "Tanda"}.",
-            tag: "tanda-payment-webhook"
-        );
+        }, cancellationToken);
     }
 
-    private async Task ProcessOrderPayment(MpPaymentDetail mpPayment)
+    private async Task ProcessOrderPaymentAsync(
+        MpPaymentDetail mpPayment,
+        int businessId,
+        CancellationToken cancellationToken)
     {
-        if (!int.TryParse(mpPayment.ExternalReference.Replace("order_", ""), out int orderId))
-            return;
-
-        var order = await _db.Orders
-            .Include(o => o.Payments)
-            .Include(o => o.Client)
-            .FirstOrDefaultAsync(o => o.Id == orderId);
-
-        if (order == null)
+        if (!int.TryParse(mpPayment.ExternalReference?.Replace("order_", ""), out var orderId))
         {
-            Console.WriteLine($"[Webhook] Pedido #{orderId} no encontrado.");
             return;
         }
 
-        // Verificar si ya registramos este ID de pago
-        var existingPayment = order.Payments?.FirstOrDefault(p => p.Notes != null && p.Notes.Contains($"MP#{mpPayment.Id}"));
+        var order = await _db.Orders
+            .IgnoreQueryFilters()
+            .Include(o => o.Client)
+            .FirstOrDefaultAsync(
+                o => o.Id == orderId && o.BusinessId == businessId,
+                cancellationToken);
 
-        if (mpPayment.Status == "approved")
+        if (order == null)
+        {
+            _logger.LogWarning("[Webhook] Pedido #{OrderId} no encontrado para business {BusinessId}.", orderId, businessId);
+            return;
+        }
+
+        var existingPayment = await _db.OrderPayments
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                p => p.BusinessId == businessId &&
+                     p.OrderId == order.Id &&
+                     p.Notes != null &&
+                     p.Notes.Contains($"MP#{mpPayment.Id}"),
+                cancellationToken);
+
+        if (string.Equals(mpPayment.Status, "approved", StringComparison.OrdinalIgnoreCase))
         {
             if (existingPayment == null)
             {
-                // Es un pago nuevo aprobado (quizás la clienta cerró el navegador antes)
                 var payment = new OrderPayment
                 {
+                    BusinessId = businessId,
                     OrderId = order.Id,
                     Amount = mpPayment.TransactionAmount,
                     Method = "Tarjeta",
@@ -267,41 +303,54 @@ public class PaymentsWebhookController : ControllerBase
                     Notes = $"MP#{mpPayment.Id} | {mpPayment.StatusDetail} (Auto)"
                 };
                 _db.OrderPayments.Add(payment);
-                
-                // Confirmar pedido si estaba pendiente
+
                 if (order.Status is Models.OrderStatus.Pending or Models.OrderStatus.Postponed)
                 {
                     order.Status = Models.OrderStatus.Confirmed;
                 }
 
-                await _db.SaveChangesAsync();
-
-                // Notificar a Admins
-                await NotifyAdmins(order, mpPayment.TransactionAmount, "aprobado");
+                await _db.SaveChangesAsync(cancellationToken);
+                await NotifyAdminsAsync(order, mpPayment.TransactionAmount, businessId, "aprobado", cancellationToken);
             }
             else if (existingPayment.Notes != null && !existingPayment.Notes.Contains("approved"))
             {
-                // El pago existía (ej. estaba 'in_process') y ahora se aprobó
                 existingPayment.Notes = $"MP#{mpPayment.Id} | approved (Webhook)";
-                
+
                 if (order.Status is Models.OrderStatus.Pending or Models.OrderStatus.Postponed)
                 {
                     order.Status = Models.OrderStatus.Confirmed;
                 }
 
-                await _db.SaveChangesAsync();
-                await NotifyAdmins(order, mpPayment.TransactionAmount, "confirmado (era pendiente)");
+                await _db.SaveChangesAsync(cancellationToken);
+                await NotifyAdminsAsync(order, mpPayment.TransactionAmount, businessId, "confirmado", cancellationToken);
             }
         }
-        else if (mpPayment.Status == "rejected")
+        else if (string.Equals(mpPayment.Status, "rejected", StringComparison.OrdinalIgnoreCase) &&
+                 existingPayment != null)
         {
-            if (existingPayment != null)
-            {
-                existingPayment.Notes = $"MP#{mpPayment.Id} | rejected (Webhook)";
-                await _db.SaveChangesAsync();
-                // Opcional: Notificar rechazo
-            }
+            existingPayment.Notes = $"MP#{mpPayment.Id} | rejected (Webhook)";
+            await _db.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    private async Task NotifyAdminsAsync(
+        Order order,
+        decimal amount,
+        int businessId,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var clientName = order.Client?.Name ?? "Clienta";
+
+        await _hub.Clients.Group(SignalRGroupNames.Admins(businessId)).SendAsync("DeliveryUpdate", new
+        {
+            OrderId = order.Id,
+            Status = order.Status.ToString(),
+            ChangeType = "card_payment_webhook",
+            ClientName = clientName,
+            AmountPaid = amount,
+            Action = action
+        }, cancellationToken);
     }
 
     private async Task ProcessPreapprovalEventAsync(
@@ -428,28 +477,6 @@ public class PaymentsWebhookController : ControllerBase
             12 => SubscriptionPeriodicity.Annual,
             _ => SubscriptionPeriodicity.Monthly
         };
-    }
-
-    private async Task NotifyAdmins(Order order, decimal amount, string action)
-    {
-        var clientName = order.Client?.Name ?? "Clienta";
-
-        // SignalR
-        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new
-        {
-            OrderId = order.Id,
-            Status = order.Status.ToString(),
-            ChangeType = "card_payment_webhook",
-            ClientName = clientName,
-            AmountPaid = amount
-        });
-
-        // Push
-        await _push.SendNotificationToAdminsAsync(
-            $"💳 Pago {action}: ${amount:F2}",
-            $"Pedido #{order.Id} de {clientName} actualizado vía Mercado Pago.",
-            tag: "card-payment-webhook"
-        );
     }
 
     // DTOs para el Webhook
