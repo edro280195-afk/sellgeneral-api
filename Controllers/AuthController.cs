@@ -356,8 +356,7 @@ public class AuthController : ControllerBase
         var accountExists = await _db.Accounts
             .AsNoTracking()
             .AnyAsync(
-                account => account.Phone == phone &&
-                           account.PhoneVerifiedAt != null,
+                account => account.Phone == phone,
                 cancellationToken);
 
         if (IsDevOtpEnabled)
@@ -464,8 +463,7 @@ public class AuthController : ControllerBase
 
         var account = await _db.Accounts
             .FirstOrDefaultAsync(
-                candidate => candidate.Phone == phone &&
-                             candidate.PhoneVerifiedAt != null,
+                candidate => candidate.Phone == phone,
                 cancellationToken);
         if (account is null)
         {
@@ -475,6 +473,10 @@ public class AuthController : ControllerBase
             });
         }
 
+        if (account.PhoneVerifiedAt is null)
+        {
+            account.PhoneVerifiedAt = DateTime.UtcNow;
+        }
         account.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
         await _db.SaveChangesAsync(cancellationToken);
 

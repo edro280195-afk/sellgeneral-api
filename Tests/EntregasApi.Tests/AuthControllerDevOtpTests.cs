@@ -316,7 +316,7 @@ public class AuthControllerDevOtpTests
     }
 
     [Fact]
-    public async Task ConfirmPasswordReset_UnverifiedPhone_IsRejected()
+    public async Task ConfirmPasswordReset_UnverifiedPhone_SucceedsAndVerifiesPhone()
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
@@ -329,11 +329,12 @@ public class AuthControllerDevOtpTests
                 "000000",
                 "nueva-clave-123"));
 
-        Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.IsType<OkObjectResult>(result);
         var account = await ctx.Accounts.SingleAsync();
         Assert.True(BCrypt.Net.BCrypt.Verify(
-            "secret123",
+            "nueva-clave-123",
             account.PasswordHash));
+        Assert.NotNull(account.PhoneVerifiedAt);
     }
 
     [Fact]
