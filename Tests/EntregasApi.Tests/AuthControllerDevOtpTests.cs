@@ -215,6 +215,96 @@ public class AuthControllerDevOtpTests
     }
 
     [Fact]
+    public async Task RequestPasswordReset_VerifiedPhone_ReturnsAccepted()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var result = await controller.RequestPasswordReset(
+            new PasswordResetRequest("868-145-2290"));
+
+        Assert.IsType<AcceptedResult>(result);
+    }
+
+    [Fact]
+    public async Task ConfirmPasswordReset_ValidCode_ReplacesPassword()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var result = await controller.ConfirmPasswordReset(
+            new ConfirmPasswordResetRequest(
+                "8681452290",
+                "000000",
+                "nueva-clave-123"));
+
+        Assert.IsType<OkObjectResult>(result);
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.True(BCrypt.Net.BCrypt.Verify(
+            "nueva-clave-123",
+            account.PasswordHash));
+        Assert.False(BCrypt.Net.BCrypt.Verify(
+            "secret123",
+            account.PasswordHash));
+
+        var login = await controller.LoginPhone(
+            new PhonePasswordLoginRequest("8681452290", "nueva-clave-123"));
+        Assert.IsType<OkObjectResult>(login.Result);
+    }
+
+    [Fact]
+    public async Task ConfirmPasswordReset_WrongCode_DoesNotChangePassword()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var result = await controller.ConfirmPasswordReset(
+            new ConfirmPasswordResetRequest(
+                "8681452290",
+                "111111",
+                "nueva-clave-123"));
+
+        Assert.IsType<UnauthorizedObjectResult>(result);
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.True(BCrypt.Net.BCrypt.Verify(
+            "secret123",
+            account.PasswordHash));
+    }
+
+    [Fact]
+    public async Task ConfirmPasswordReset_UnverifiedPhone_IsRejected()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+
+        var result = await controller.ConfirmPasswordReset(
+            new ConfirmPasswordResetRequest(
+                "8681452290",
+                "000000",
+                "nueva-clave-123"));
+
+        Assert.IsType<UnauthorizedObjectResult>(result);
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.True(BCrypt.Net.BCrypt.Verify(
+            "secret123",
+            account.PasswordHash));
+    }
+
+    [Fact]
     public async Task FacebookLogin_NotConfigured_ReturnsNotImplemented()
     {
         using var ctx = TestDbContextFactory.Create();

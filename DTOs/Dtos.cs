@@ -38,6 +38,15 @@ public record PhoneRegisterRequest(
 /// <summary>Acceso de la compradora ya registrada: teléfono + contraseña.</summary>
 public record PhonePasswordLoginRequest(string Phone, string Password);
 
+/// <summary>Solicita un código para restablecer la contraseña.</summary>
+public record PasswordResetRequest(string Phone);
+
+/// <summary>Confirma el código y establece una contraseña nueva.</summary>
+public record ConfirmPasswordResetRequest(
+    string Phone,
+    string Code,
+    string NewPassword);
+
 /// <summary>
 /// Inicia Facebook Login. Si el Facebook ya está vinculado a una cuenta
 /// verificada devuelve sesión; de lo contrario responde con los datos que

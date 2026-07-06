@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 
 namespace EntregasApi.Controllers;
@@ -39,6 +40,7 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IPhoneVerificationService _phoneVerification;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         AppDbContext db,
@@ -46,7 +48,8 @@ public class AuthController : ControllerBase
         IHostEnvironment env,
         IConfiguration config,
         IPhoneVerificationService phoneVerification,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        ILogger<AuthController>? logger = null)
     {
         _db = db;
         _tokenService = tokenService;
@@ -54,6 +57,7 @@ public class AuthController : ControllerBase
         _config = config;
         _phoneVerification = phoneVerification;
         _httpClientFactory = httpClientFactory;
+        _logger = logger ?? NullLogger<AuthController>.Instance;
     }
 
     /// <summary>
@@ -327,6 +331,160 @@ public class AuthController : ControllerBase
         }
 
         return Ok(BuildLoginResponse(account, account.Memberships));
+    }
+
+    /// <summary>
+    /// Solicita un código por WhatsApp para restablecer la contraseña. La
+    /// respuesta no confirma si el teléfono pertenece a una cuenta.
+    /// </summary>
+    [HttpPost("password/reset/request")]
+    [EnableRateLimiting("otp-send")]
+    public async Task<ActionResult> RequestPasswordReset(
+        PasswordResetRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return BadRequest(new
+            {
+                message = "Escribe un teléfono mexicano de 10 dígitos con lada."
+            });
+        }
+
+        var accountExists = await _db.Accounts
+            .AsNoTracking()
+            .AnyAsync(
+                account => account.Phone == phone &&
+                           account.PhoneVerifiedAt != null,
+                cancellationToken);
+
+        if (IsDevOtpEnabled)
+        {
+            return Accepted(new
+            {
+                phone,
+                otpRequired = true,
+                channel = "whatsapp",
+                providerConfigured = _phoneVerification.IsConfigured,
+                devMode = true,
+                message = $"Modo DEV: usa el código {DevOtpCode} para restablecer la contraseña."
+            });
+        }
+
+        if (!_phoneVerification.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "otp_provider_not_configured",
+                message = "El servicio de WhatsApp aún no está configurado."
+            });
+        }
+
+        if (accountExists)
+        {
+            try
+            {
+                var outcome = await _phoneVerification.SendCodeAsync(
+                    phone,
+                    cancellationToken);
+                if (outcome != PhoneVerificationOutcome.Sent)
+                {
+                    _logger.LogWarning(
+                        "No se pudo enviar el OTP de restablecimiento a un teléfono terminado en {PhoneSuffix}",
+                        phone[^4..]);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Falló el proveedor de OTP durante un restablecimiento de contraseña");
+            }
+        }
+
+        return Accepted(new
+        {
+            phone,
+            otpRequired = true,
+            channel = "whatsapp",
+            providerConfigured = true,
+            devMode = false,
+            message = "Si el teléfono corresponde a una cuenta verificada, enviaremos un código por WhatsApp."
+        });
+    }
+
+    /// <summary>
+    /// Valida el código enviado al teléfono verificado y reemplaza la
+    /// contraseña con un hash BCrypt.
+    /// </summary>
+    [HttpPost("password/reset/confirm")]
+    [EnableRateLimiting("otp-check")]
+    public async Task<ActionResult> ConfirmPasswordReset(
+        ConfirmPasswordResetRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return BadRequest(new
+            {
+                message = "Escribe un teléfono mexicano de 10 dígitos con lada."
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(req.NewPassword) ||
+            req.NewPassword.Length is < 8 or > 128)
+        {
+            return BadRequest(new
+            {
+                message = "La contraseña debe tener entre 8 y 128 caracteres."
+            });
+        }
+
+        var codeError = ValidateCodeFormat(req.Code);
+        if (codeError is not null) return codeError;
+
+        var codeCheck = await CheckVerificationCodeAsync(
+            phone,
+            req.Code.Trim(),
+            cancellationToken);
+        if (codeCheck is not null)
+        {
+            _logger.LogWarning(
+                "Falló la verificación de un restablecimiento para un teléfono terminado en {PhoneSuffix}",
+                phone[^4..]);
+            return codeCheck;
+        }
+
+        var account = await _db.Accounts
+            .FirstOrDefaultAsync(
+                candidate => candidate.Phone == phone &&
+                             candidate.PhoneVerifiedAt != null,
+                cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized(new
+            {
+                message = "No pudimos restablecer la contraseña."
+            });
+        }
+
+        account.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Contraseña restablecida para la cuenta {AccountId}",
+            account.Id);
+
+        return Ok(new
+        {
+            message = "Contraseña actualizada. Ya puedes continuar con Facebook."
+        });
     }
 
     // ── Reenvío / flujo OTP legacy (compatibilidad) ──
