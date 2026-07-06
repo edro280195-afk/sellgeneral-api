@@ -88,12 +88,12 @@ public class AuthController : ControllerBase
             string.IsNullOrWhiteSpace(req.Email) ||
             string.IsNullOrWhiteSpace(req.Password))
         {
-            return BadRequest(new { message = "Nombre, correo y contrasena son obligatorios." });
+            return BadRequest(new { message = "Nombre, correo y contraseña son obligatorios." });
         }
 
-        if (req.Password.Length < 8)
+        if (req.Password.Length is < 8 or > 128)
         {
-            return BadRequest(new { message = "La contrasena debe tener al menos 8 caracteres." });
+            return BadRequest(new { message = "La contraseña debe tener entre 8 y 128 caracteres." });
         }
 
         var email = NormalizeEmail(req.Email);
@@ -127,7 +127,7 @@ public class AuthController : ControllerBase
         if (account?.PasswordHash is null ||
             !BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
         {
-            return Unauthorized(new { message = "Correo o contrasena incorrectos." });
+            return Unauthorized(new { message = "Correo o contraseña incorrectos." });
         }
 
         return Ok(BuildLoginResponse(account, account.Memberships));
@@ -151,9 +151,10 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Escribe tu nombre y tu apellido." });
         }
 
-        if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 8)
+        if (string.IsNullOrWhiteSpace(req.Password) ||
+            req.Password.Length is < 8 or > 128)
         {
-            return BadRequest(new { message = "La contraseña debe tener al menos 8 caracteres." });
+            return BadRequest(new { message = "La contraseña debe tener entre 8 y 128 caracteres." });
         }
 
         var phone = _phoneVerification.NormalizePhone(req.Phone);
@@ -500,7 +501,7 @@ public class AuthController : ControllerBase
         {
             return BadRequest(new
             {
-                message = "Escribe un telefono mexicano de 10 digitos con lada."
+                message = "Escribe un teléfono mexicano de 10 dígitos con lada."
             });
         }
 
@@ -518,7 +519,7 @@ public class AuthController : ControllerBase
         {
             return BadRequest(new
             {
-                message = "Escribe un telefono mexicano de 10 digitos con lada."
+                message = "Escribe un teléfono mexicano de 10 dígitos con lada."
             });
         }
 
@@ -1168,7 +1169,7 @@ public class AuthController : ControllerBase
                 channel = "whatsapp",
                 providerConfigured = _phoneVerification.IsConfigured,
                 devMode = true,
-                message = $"Modo DEV: usa el codigo {DevOtpCode} para confirmar."
+                message = $"Modo DEV: usa el código {DevOtpCode} para confirmar."
             });
         }
 
@@ -1177,7 +1178,7 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 error = "otp_provider_not_configured",
-                message = "El servicio de WhatsApp aun no esta configurado."
+                message = "El servicio de WhatsApp aún no está configurado."
             });
         }
 
@@ -1187,7 +1188,7 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
                 error = "otp_send_failed",
-                message = "No pudimos enviar el codigo por WhatsApp. Intenta de nuevo."
+                message = "No pudimos enviar el código por WhatsApp. Intenta de nuevo."
             });
         }
 
@@ -1198,7 +1199,7 @@ public class AuthController : ControllerBase
             channel = "whatsapp",
             providerConfigured = true,
             devMode = false,
-            message = "Codigo enviado por WhatsApp."
+            message = "Código enviado por WhatsApp."
         });
     }
 
@@ -1223,7 +1224,7 @@ public class AuthController : ControllerBase
             return BadRequest(new
             {
                 error = "invalid_code_format",
-                message = "El codigo debe tener 6 digitos."
+                message = "El código debe tener 6 dígitos."
             });
         }
         return null;
@@ -1239,7 +1240,7 @@ public class AuthController : ControllerBase
         {
             return string.Equals(code, DevOtpCode, StringComparison.Ordinal)
                 ? null
-                : Unauthorized(new { error = "invalid_code", message = "Codigo incorrecto." });
+                : Unauthorized(new { error = "invalid_code", message = "Código incorrecto." });
         }
 
         if (!_phoneVerification.IsConfigured)
@@ -1247,14 +1248,14 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {
                 error = "otp_provider_not_configured",
-                message = "El servicio de WhatsApp aun no esta configurado."
+                message = "El servicio de WhatsApp aún no está configurado."
             });
         }
 
         var outcome = await _phoneVerification.CheckCodeAsync(phone, code, cancellationToken);
         if (outcome == PhoneVerificationOutcome.Invalid)
         {
-            return Unauthorized(new { error = "invalid_code", message = "Codigo incorrecto o expirado." });
+            return Unauthorized(new { error = "invalid_code", message = "Código incorrecto o expirado." });
         }
 
         if (outcome != PhoneVerificationOutcome.Approved)
@@ -1262,7 +1263,7 @@ public class AuthController : ControllerBase
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
                 error = "otp_verification_failed",
-                message = "No pudimos validar el codigo. Intenta de nuevo."
+                message = "No pudimos validar el código. Intenta de nuevo."
             });
         }
 

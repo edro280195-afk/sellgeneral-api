@@ -215,6 +215,38 @@ public class AuthControllerDevOtpTests
     }
 
     [Fact]
+    public async Task RegisterPhone_PasswordLongerThan128_BadRequest()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var result = await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana",
+            "López",
+            "8681452290",
+            "ana@correo.com",
+            new string('x', 129)));
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(0, await ctx.Accounts.CountAsync());
+    }
+
+    [Fact]
+    public async Task RegisterLegacy_PasswordLongerThan128_BadRequest()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var result = await controller.Register(new RegisterRequest(
+            "Ana López",
+            "ana@correo.com",
+            new string('x', 129)));
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal(0, await ctx.Accounts.CountAsync());
+    }
+
+    [Fact]
     public async Task RequestPasswordReset_VerifiedPhone_ReturnsAccepted()
     {
         using var ctx = TestDbContextFactory.Create();
