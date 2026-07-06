@@ -16,7 +16,32 @@ public record RegisterRequest(string Name, string Email, string Password);
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
 public record VerifyPhoneLoginRequest(string Phone, string Code);
-public record FacebookLoginRequest(string AccessToken);
+
+// ── Registro/acceso de la compradora por teléfono + contraseña (confirmación WhatsApp) ──
+
+/// <summary>
+/// Alta de una compradora con teléfono + contraseña. Tras registrarse se envía
+/// un código por WhatsApp que debe confirmar en <c>phone/confirm</c>.
+/// </summary>
+public record PhoneRegisterRequest(
+    string FirstName,
+    string LastName,
+    string Phone,
+    string Email,
+    string Password);
+
+/// <summary>Acceso de la compradora ya registrada: teléfono + contraseña.</summary>
+public record PhonePasswordLoginRequest(string Phone, string Password);
+
+/// <summary>
+/// Login con Facebook. <c>Phone</c> es obligatorio la primera vez (cuenta nueva);
+/// en accesos posteriores se ignora porque la cuenta ya quedó enlazada.
+/// </summary>
+public record FacebookLoginRequest(
+    string AccessToken,
+    string? Phone = null,
+    string? FirstName = null,
+    string? LastName = null);
 
 // Suscripcion / onboarding de negocio
 public record CreateBusinessRequest(

@@ -16,12 +16,26 @@ public class Account
     [Required, MaxLength(150)]
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>Nombre de pila de la compradora (registro por teléfono). Opcional para cuentas legacy.</summary>
+    [MaxLength(100)]
+    public string? FirstName { get; set; }
+
+    /// <summary>Apellido de la compradora (registro por teléfono). Opcional para cuentas legacy.</summary>
+    [MaxLength(100)]
+    public string? LastName { get; set; }
+
     [MaxLength(500)]
     public string? ProfilePhotoUrl { get; set; }
 
     /// <summary>Teléfono normalizado (solo dígitos, ver TextNormalizer). Unique cuando no es null.</summary>
     [MaxLength(20)]
     public string? Phone { get; set; }
+
+    /// <summary>
+    /// Momento en que la compradora confirmó su teléfono por WhatsApp. Null = sin verificar.
+    /// El login por teléfono+contraseña exige que este campo no sea null.
+    /// </summary>
+    public DateTime? PhoneVerifiedAt { get; set; }
 
     /// <summary>Id app-scoped de Facebook Login (public_profile). Unique cuando no es null.</summary>
     [MaxLength(100)]

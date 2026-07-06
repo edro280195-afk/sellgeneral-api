@@ -1,3 +1,4 @@
+using System.Net.Http;
 using EntregasApi.Controllers;
 using EntregasApi.Data;
 using EntregasApi.DTOs;
@@ -36,7 +37,8 @@ public class AuthControllerDevOtpTests
             new TokenService(config),
             new FakeHostEnvironment(env),
             config,
-            phoneVerification ?? new FakePhoneVerificationService());
+            phoneVerification ?? new FakePhoneVerificationService(),
+            new FakeHttpClientFactory());
     }
 
     [Fact]
@@ -121,6 +123,120 @@ public class AuthControllerDevOtpTests
         Assert.IsType<OkObjectResult>(result.Result);
         var account = await ctx.Accounts.SingleAsync();
         Assert.Equal("8681452290", account.Phone);
+    }
+
+    // ── Nuevo flujo: registro por teléfono + contraseña (confirmación WhatsApp) ──
+
+    [Fact]
+    public async Task RegisterPhone_ThenConfirm_CreatesVerifiedAccountWithName()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var register = await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "868-145-2290", "ana@correo.com", "secret123"));
+        Assert.IsType<AcceptedResult>(register);
+
+        var confirm = await controller.ConfirmPhone(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+        var ok = Assert.IsType<OkObjectResult>(confirm.Result);
+        var resp = Assert.IsType<LoginResponse>(ok.Value);
+        Assert.Equal("Ana López", resp.Name);
+
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.Equal("8681452290", account.Phone);
+        Assert.Equal("ana@correo.com", account.Email);
+        Assert.NotNull(account.PhoneVerifiedAt);
+    }
+
+    [Fact]
+    public async Task LoginPhone_AfterConfirm_ReturnsToken()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var login = await controller.LoginPhone(
+            new PhonePasswordLoginRequest("8681452290", "secret123"));
+
+        var ok = Assert.IsType<OkObjectResult>(login.Result);
+        Assert.IsType<LoginResponse>(ok.Value);
+    }
+
+    [Fact]
+    public async Task LoginPhone_WrongPassword_Unauthorized()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var login = await controller.LoginPhone(
+            new PhonePasswordLoginRequest("8681452290", "otraClave"));
+
+        Assert.IsType<UnauthorizedObjectResult>(login.Result);
+    }
+
+    [Fact]
+    public async Task LoginPhone_BeforeConfirm_ReturnsNeedsVerification()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+
+        var login = await controller.LoginPhone(
+            new PhonePasswordLoginRequest("8681452290", "secret123"));
+
+        var obj = Assert.IsType<ObjectResult>(login.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, obj.StatusCode);
+    }
+
+    [Fact]
+    public async Task RegisterPhone_AlreadyVerified_Conflict()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        var again = await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
+
+        Assert.IsType<ConflictObjectResult>(again);
+    }
+
+    [Fact]
+    public async Task FacebookLogin_NotConfigured_ReturnsNotImplemented()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var result = await controller.FacebookLogin(new FacebookLoginRequest("fake-token"));
+
+        var obj = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status501NotImplemented, obj.StatusCode);
+    }
+
+    private sealed class FakeHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(new ThrowingHandler());
+
+        private sealed class ThrowingHandler : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken) =>
+                throw new InvalidOperationException("Sin red en tests.");
+        }
     }
 
     private sealed class FakeHostEnvironment : IHostEnvironment

@@ -24,7 +24,7 @@ public class TwilioVerifyServiceTests
     }
 
     [Fact]
-    public async Task SendCodeAsync_PostsSmsVerificationInSpanish()
+    public async Task SendCodeAsync_PostsWhatsAppVerificationInSpanish()
     {
         var handler = new StubHandler(
             HttpStatusCode.Created,
@@ -40,8 +40,21 @@ public class TwilioVerifyServiceTests
             handler.LastRequest.RequestUri?.AbsolutePath);
         Assert.Equal("Basic", handler.LastRequest.Headers.Authorization?.Scheme);
         Assert.Contains("To=%2B528681452290", handler.LastBody);
-        Assert.Contains("Channel=sms", handler.LastBody);
+        Assert.Contains("Channel=whatsapp", handler.LastBody);
         Assert.Contains("Locale=es", handler.LastBody);
+    }
+
+    [Fact]
+    public async Task SendCodeAsync_HonorsConfiguredChannel()
+    {
+        var handler = new StubHandler(
+            HttpStatusCode.Created,
+            """{"status":"pending"}""");
+        var service = BuildService(handler, channel: "sms");
+
+        await service.SendCodeAsync("8681452290", default);
+
+        Assert.Contains("Channel=sms", handler.LastBody);
     }
 
     [Fact]
@@ -74,13 +87,16 @@ public class TwilioVerifyServiceTests
         Assert.Equal(PhoneVerificationOutcome.Invalid, outcome);
     }
 
-    private static TwilioVerifyService BuildService(HttpMessageHandler handler)
+    private static TwilioVerifyService BuildService(
+        HttpMessageHandler handler,
+        string channel = "whatsapp")
     {
         var options = Options.Create(new SmsOptions
         {
             Provider = "Twilio",
             DefaultCountryCode = "52",
             NationalNumberLength = 10,
+            Channel = channel,
             Twilio = new TwilioVerifyOptions
             {
                 AccountSid = "AC123",

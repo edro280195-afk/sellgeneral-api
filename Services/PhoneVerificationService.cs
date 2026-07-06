@@ -11,6 +11,13 @@ public sealed class SmsOptions
     public string Provider { get; init; } = "Twilio";
     public string DefaultCountryCode { get; init; } = "52";
     public int NationalNumberLength { get; init; } = 10;
+
+    /// <summary>
+    /// Canal de Twilio Verify para enviar el código: "whatsapp" (default), "sms" o "call".
+    /// Para WhatsApp, el Verify Service de Twilio debe tener un sender de WhatsApp aprobado.
+    /// </summary>
+    public string Channel { get; init; } = "whatsapp";
+
     public TwilioVerifyOptions Twilio { get; init; } = new();
 }
 
@@ -88,11 +95,15 @@ public sealed class TwilioVerifyService(
         string normalizedPhone,
         CancellationToken cancellationToken)
     {
+        var channel = string.IsNullOrWhiteSpace(_options.Channel)
+            ? "whatsapp"
+            : _options.Channel.Trim().ToLowerInvariant();
+
         return PostAsync(
             "Verifications",
             [
                 new KeyValuePair<string, string>("To", ToE164(normalizedPhone)),
-                new KeyValuePair<string, string>("Channel", "sms"),
+                new KeyValuePair<string, string>("Channel", channel),
                 new KeyValuePair<string, string>("Locale", "es")
             ],
             isVerificationCheck: false,
