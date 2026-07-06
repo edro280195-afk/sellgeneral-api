@@ -15,7 +15,12 @@ public record LoginResponse(
 public record RegisterRequest(string Name, string Email, string Password);
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
-public record VerifyPhoneLoginRequest(string Phone, string Code);
+public record VerifyPhoneLoginRequest(
+    string Phone,
+    string Code,
+    string? AccountType = null,
+    string? BusinessName = null,
+    string? City = null);
 
 // ── Registro/acceso de la compradora por teléfono + contraseña (confirmación WhatsApp) ──
 
@@ -34,14 +39,46 @@ public record PhoneRegisterRequest(
 public record PhonePasswordLoginRequest(string Phone, string Password);
 
 /// <summary>
-/// Login con Facebook. <c>Phone</c> es obligatorio la primera vez (cuenta nueva);
-/// en accesos posteriores se ignora porque la cuenta ya quedó enlazada.
+/// Inicia Facebook Login. Si el Facebook ya está vinculado a una cuenta
+/// verificada devuelve sesión; de lo contrario responde con los datos que
+/// todavía deben completarse.
 /// </summary>
 public record FacebookLoginRequest(
     string AccessToken,
-    string? Phone = null,
-    string? FirstName = null,
-    string? LastName = null);
+    string AccountType = "client",
+    string TokenType = "classic");
+
+/// <summary>
+/// Completa un alta o enlace iniciado con Facebook. Una cuenta existente exige
+/// su contraseña actual antes de permitir que se agregue Facebook como método
+/// de acceso.
+/// </summary>
+public record FacebookCompleteProfileRequest(
+    string AccessToken,
+    string AccountType,
+    string FirstName,
+    string LastName,
+    string Email,
+    string Phone,
+    string TokenType = "classic",
+    string? BusinessName = null,
+    string? City = null,
+    string? ExistingPassword = null);
+
+public record FacebookContinuationResponse(
+    string Error,
+    string Message,
+    string AccountType,
+    bool NeedsProfile,
+    bool NeedsPhoneVerification,
+    bool RequiresExistingPassword,
+    string? FirstName,
+    string? LastName,
+    string? Email,
+    string? Phone,
+    List<string> MissingFields,
+    bool ProviderConfigured = false,
+    bool DevMode = false);
 
 // Suscripcion / onboarding de negocio
 public record CreateBusinessRequest(
@@ -509,8 +546,8 @@ public record CommonProductDto(string Name, int Count, decimal TypicalPrice);
 // ── AI Insights ──
 public record AiInsightDto(
     string Category, // 'Finanzas', 'Ventas', 'Clientas', 'Riesgo', 'Operación'
-    string Title, 
-    string Description, 
+    string Title,
+    string Description,
     string ActionableAdvice,
     string Icon
 );
@@ -524,7 +561,7 @@ public record ReportDto(
     decimal TotalExpenses,     // DriverExpenses
     decimal NetProfit,         // TotalRevenue - TotalInvestment - TotalExpenses
     decimal CashBalance,       // TotalCollected - TotalInvestment - TotalExpenses
-    // Pedidos
+                               // Pedidos
     int TotalOrders,
     int PendingOrders,
     int InRouteOrders,

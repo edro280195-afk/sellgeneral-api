@@ -5,6 +5,12 @@
 
 # dotenv files
 .env
+.env.*
+!.env.example
+secrets.json
+*.pem
+*.key
+*.p12
 
 # User-specific files
 *.rsuser

@@ -71,6 +71,10 @@ ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
 // ── HTTP Client (Mercado Pago y otras llamadas externas) ──
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("facebook", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+}).RemoveAllLoggers();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -98,6 +102,15 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("facebook-auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
