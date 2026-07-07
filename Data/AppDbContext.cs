@@ -61,6 +61,7 @@ public class AppDbContext : DbContext
     public DbSet<SalesPeriod> SalesPeriods => Set<SalesPeriod>();
     public DbSet<OrderPackage> OrderPackages => Set<OrderPackage>();
     public DbSet<FcmToken> FcmTokens => Set<FcmToken>();
+    public DbSet<OrderRating> OrderRatings => Set<OrderRating>();
 
     // Sorteos
     public DbSet<Raffle> Raffles => Set<Raffle>();

@@ -482,7 +482,16 @@ public record ClientOrderView(
     DateTime? DeliveredAt = null,
     /// <summary>Fotos del intento de no entrega (cuando Status = NotDelivered).</summary>
     List<string>? NonDeliveryEvidenceUrls = null,
-    string? MercadoPagoPublicKey = null
+    string? MercadoPagoPublicKey = null,
+    // ── Campos V3: Experiencia de seguimiento Nenis ──
+    /// <summary>Nombre del negocio (tienda). Protagonista de la experiencia.</summary>
+    string? BusinessName = null,
+    /// <summary>URL del logo del negocio (Cloudinary). Null si la tienda no lo ha subido.</summary>
+    string? BusinessLogoUrl = null,
+    /// <summary>Nombre del repartidor asignado a la ruta. Null si aún no hay ruta activa.</summary>
+    string? CourierName = null,
+    /// <summary>Evaluación previa si la clienta ya calificó este pedido. Null si aún no.</summary>
+    OrderRatingDto? Rating = null
 );
 
 // ── OrderPayment ──
@@ -495,6 +504,31 @@ public record OrderPaymentDto(
     string RegisteredBy,
     string? Notes
 );
+
+// ── Order Rating (Experiencia Nenis V3) ──
+/// <summary>DTO de respuesta con la evaluación ya guardada.</summary>
+public record OrderRatingDto(
+    int Id,
+    int Stars,
+    List<string>? Reasons,
+    string? Comment,
+    DateTime CreatedAt
+);
+
+/// <summary>Request de la clienta al enviar su evaluación del pedido.</summary>
+public record SubmitOrderRatingRequest
+{
+    /// <summary>Calificación 1–5 estrellas.</summary>
+    [Required, Range(1, 5)]
+    public int Stars { get; init; }
+
+    /// <summary>Motivos/stickers seleccionados (ej. ["🎀 El producto", "⚡ La entrega"]).</summary>
+    public List<string>? Reasons { get; init; }
+
+    /// <summary>Comentario libre opcional.</summary>
+    [MaxLength(1000)]
+    public string? Comment { get; init; }
+}
 
 
 public record AddPaymentRequest

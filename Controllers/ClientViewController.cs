@@ -59,13 +59,14 @@ public class ClientViewController : ControllerBase
         if (order.ExpiresAt < DateTime.UtcNow)
             return Gone("Este enlace ha expirado.");
 
-        var mercadoPagoPublicKey = await _db.Businesses
+        // Datos del negocio (branding para la experiencia V3)
+        var business = await _db.Businesses
             .AsNoTracking()
-            .Where(b => b.Id == order.BusinessId &&
-                        b.MercadoPagoAccessToken != null &&
-                        b.MercadoPagoPublicKey != null)
-            .Select(b => b.MercadoPagoPublicKey)
+            .Where(b => b.Id == order.BusinessId)
+            .Select(b => new { b.Name, b.LogoUrl, b.MercadoPagoPublicKey })
             .FirstOrDefaultAsync();
+
+        var mercadoPagoPublicKey = business?.MercadoPagoPublicKey;
 
         // Ubicación del repartidor
         DriverLocationDto? driverLocation = null;
@@ -105,6 +106,46 @@ public class ClientViewController : ControllerBase
                                      && (d.Status == DeliveryStatus.Pending || d.Status == DeliveryStatus.InTransit));
             }
         }
+
+        // Nombre del repartidor: buscamos el Account con rol Driver en este negocio
+        // que esté asociado a la ruta activa del pedido. Si no hay ruta, retorna null.
+        string? courierName = null;
+        if (order.DeliveryRouteId.HasValue && order.DeliveryRoute != null)
+        {
+            // El DriverToken de la ruta es el JWT del repartidor; buscamos el Account
+            // mediante la Membership Driver que coincida. Si no se encuentra, usamos
+            // el nombre de la ruta como fallback legible.
+            var driverAccount = await _db.Memberships
+                .AsNoTracking()
+                .Where(m => m.BusinessId == order.BusinessId && m.Role == MembershipRole.Driver)
+                .Join(
+                    _db.Accounts.AsNoTracking(),
+                    m => m.AccountId,
+                    a => a.Id,
+                    (m, a) => a.DisplayName
+                )
+                .FirstOrDefaultAsync();
+
+            courierName = driverAccount ?? order.DeliveryRoute.Name;
+        }
+
+        // Evaluación previa del pedido (si la clienta ya calificó)
+        // Nota: la deserialización de Reasons se hace en memoria (no en el expression tree de EF).
+        var rawRating = await _db.OrderRatings
+            .AsNoTracking()
+            .Where(r => r.OrderId == order.Id)
+            .Select(r => new { r.Id, r.Stars, r.Reasons, r.Comment, r.CreatedAt })
+            .FirstOrDefaultAsync();
+
+        OrderRatingDto? existingRating = rawRating is null ? null : new OrderRatingDto(
+            rawRating.Id,
+            rawRating.Stars,
+            rawRating.Reasons is not null
+                ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(rawRating.Reasons)
+                : null,
+            rawRating.Comment,
+            rawRating.CreatedAt
+        );
 
         // Determinar el status real para la clienta
         var clientStatus = order.Status.ToString();
@@ -167,8 +208,78 @@ public class ClientViewController : ControllerBase
             NonDeliveryEvidenceUrls: order.Delivery?.Evidences?
                 .Where(e => e.Type == EvidenceType.NonDeliveryProof)
                 .Select(e => e.ImagePath).ToList(),
-            MercadoPagoPublicKey: mercadoPagoPublicKey
+            MercadoPagoPublicKey: mercadoPagoPublicKey,
+            BusinessName: business?.Name,
+            BusinessLogoUrl: business?.LogoUrl,
+            CourierName: courierName,
+            Rating: existingRating
         ));
+    }
+
+    /// <summary>
+    /// POST /api/pedido/{token}/rating — La clienta evalúa su experiencia de entrega.
+    /// Idempotente: si ya existe una evaluación para este pedido, se actualiza.
+    /// Solo se permite evaluar pedidos en estado Delivered.
+    /// </summary>
+    [HttpPost("rating")]
+    [AllowAnonymous]
+    public async Task<ActionResult<OrderRatingDto>> SubmitRating(
+        string accessToken,
+        [FromBody] SubmitOrderRatingRequest req)
+    {
+        var order = await _db.Orders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(o => o.AccessToken == accessToken);
+
+        if (order == null)
+            return NotFound(new { message = "Pedido no encontrado." });
+
+        if (order.ExpiresAt < DateTime.UtcNow)
+            return StatusCode(410, new { message = "Este enlace ha expirado." });
+
+        // Solo se puede calificar un pedido entregado
+        if (order.Status != Models.OrderStatus.Delivered)
+            return BadRequest(new { message = "Solo puedes evaluar pedidos que ya fueron entregados." });
+
+        // Idempotente: buscar evaluación existente
+        var existing = await _db.OrderRatings
+            .FirstOrDefaultAsync(r => r.OrderId == order.Id);
+
+        string? reasonsJson = req.Reasons is { Count: > 0 }
+            ? System.Text.Json.JsonSerializer.Serialize(req.Reasons)
+            : null;
+
+        if (existing is not null)
+        {
+            existing.Stars = req.Stars;
+            existing.Reasons = reasonsJson;
+            existing.Comment = req.Comment?.Trim();
+        }
+        else
+        {
+            existing = new Models.OrderRating
+            {
+                BusinessId = order.BusinessId,
+                OrderId = order.Id,
+                Stars = req.Stars,
+                Reasons = reasonsJson,
+                Comment = req.Comment?.Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.OrderRatings.Add(existing);
+        }
+
+        await _db.SaveChangesAsync();
+
+        var dto = new OrderRatingDto(
+            existing.Id,
+            existing.Stars,
+            req.Reasons,
+            existing.Comment,
+            existing.CreatedAt
+        );
+
+        return Ok(dto);
     }
 
     [HttpGet("cami-greeting")]
