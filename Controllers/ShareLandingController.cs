@@ -25,8 +25,17 @@ namespace EntregasApi.Controllers;
 public class ShareLandingController : ControllerBase
 {
     private const string AndroidPackage = "com.nenisapp.nenis_app";
-    // PENDIENTE: rellenar al publicar en App Store (TEAMID.bundleId).
-    private const string AppleAppId = "REPLACE_TEAMID.com.nenisapp.nenis_app";
+
+    // SHA-256 del debug.keystore local: permite verificar App Links en builds
+    // debug. En producción, añade la huella de Play App Signing vía la config
+    // App:AndroidCertFingerprints (en Render: env App__AndroidCertFingerprints,
+    // varias separadas por coma).
+    private const string DefaultDebugFingerprint =
+        "59:57:3A:42:52:47:25:DC:B7:1D:00:71:49:73:2F:BC:7B:73:13:7D:BC:CA:DB:DF:5A:A1:2C:83:02:C6:33:E6";
+
+    // Universal Links iOS. Sustituir TEAMID por el Apple Team ID vía la config
+    // App:AppleAppId al tener la cuenta de Apple Developer.
+    private const string DefaultAppleAppId = "TEAMID.com.nenisapp.nenis_app";
 
     private static readonly CultureInfo EsMx = new("es-MX");
 
@@ -91,45 +100,56 @@ public class ShareLandingController : ControllerBase
     [HttpGet("/.well-known/assetlinks.json")]
     public IActionResult AssetLinks()
     {
-        // PENDIENTE: reemplazar el fingerprint por el SHA-256 del certificado de
-        // firma real (upload key de Play App Signing) al publicar.
-        var json = $$"""
-        [
-          {
-            "relation": ["delegate_permission/common.handle_all_urls"],
-            "target": {
-              "namespace": "android_app",
-              "package_name": "{{AndroidPackage}}",
-              "sha256_cert_fingerprints": [
-                "REPLACE_WITH_APP_SIGNING_SHA256_FINGERPRINT"
-              ]
-            }
-          }
-        ]
-        """;
-        return Content(json, "application/json");
+        // Huellas SHA-256 de los certificados que firman la app. Configurables
+        // en Render (App__AndroidCertFingerprints, separadas por coma) para
+        // añadir la de Play App Signing al publicar. Default: la del debug.
+        var configured = _config["App:AndroidCertFingerprints"];
+        var fingerprints = string.IsNullOrWhiteSpace(configured)
+            ? new[] { DefaultDebugFingerprint }
+            : configured
+                .Split(new[] { ',', ';', '\n', '\r', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var payload = new[]
+        {
+            new
+            {
+                relation = new[] { "delegate_permission/common.handle_all_urls" },
+                target = new
+                {
+                    @namespace = "android_app",
+                    package_name = AndroidPackage,
+                    sha256_cert_fingerprints = fingerprints,
+                },
+            },
+        };
+        return Content(JsonPretty(payload), "application/json");
     }
 
     /// <summary>iOS Universal Links: asocia el dominio con la app.</summary>
     [HttpGet("/.well-known/apple-app-site-association")]
     public IActionResult AppleAppSiteAssociation()
     {
-        var json = $$"""
+        var appId = _config["App:AppleAppId"];
+        if (string.IsNullOrWhiteSpace(appId)) appId = DefaultAppleAppId;
+
+        var payload = new
         {
-          "applinks": {
-            "apps": [],
-            "details": [
-              {
-                "appID": "{{AppleAppId}}",
-                "paths": ["/o/*", "/pedido/*"]
-              }
-            ]
-          }
-        }
-        """;
+            applinks = new
+            {
+                apps = Array.Empty<string>(),
+                details = new[]
+                {
+                    new { appID = appId, paths = new[] { "/o/*", "/pedido/*" } },
+                },
+            },
+        };
         // Apple exige application/json (sin extensión en la ruta).
-        return Content(json, "application/json");
+        return Content(JsonPretty(payload), "application/json");
     }
+
+    private static string JsonPretty(object value) =>
+        System.Text.Json.JsonSerializer.Serialize(
+            value, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
     // ── helpers ──
 
