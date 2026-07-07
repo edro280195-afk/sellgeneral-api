@@ -300,6 +300,10 @@ var app = builder.Build();
 // El store de orígenes CORS se resuelve aquí; el lambda de la política lo usa por request.
 corsOriginStore = app.Services.GetRequiredService<TenantCorsOriginStore>();
 
+// Enlace corto compartible (dominio compartido) para /o/{token}. Es un valor
+// global de despliegue; lo consume ExcelService.MapToSummary (estático).
+ExcelService.ShareLinkBaseUrl = app.Configuration["App:ShareLinkBaseUrl"];
+
 // ── Migrate DB on startup ──
 using (var scope = app.Services.CreateScope())
 {

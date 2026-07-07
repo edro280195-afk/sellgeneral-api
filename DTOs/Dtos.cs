@@ -179,7 +179,10 @@ public record OrderSummaryDto(
     string? ClientFacebookProfileUrl = null,
     DateTime? NotifiedAt = null,
     double? ClientLatitude = null,
-    double? ClientLongitude = null
+    double? ClientLongitude = null,
+    // Enlace corto compartible (dominio compartido) que abre el muro de
+    // instalación o, si la app está instalada, directamente el pedido.
+    string? ShareUrl = null
 );
 
 

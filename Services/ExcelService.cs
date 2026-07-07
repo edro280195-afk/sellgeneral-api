@@ -14,6 +14,15 @@ public interface IExcelService
 
 public class ExcelService : IExcelService
 {
+    /// <summary>
+    /// Base del enlace corto compartible (dominio compartido, p. ej.
+    /// https://sellgeneral.app). Se asigna una sola vez al arranque en
+    /// Program.cs desde <c>App:ShareLinkBaseUrl</c>. Es un valor de despliegue
+    /// global (no por-tenant, a diferencia de <c>Business.FrontendUrl</c>), por
+    /// eso vive como estático y lo consume el <c>MapToSummary</c> estático.
+    /// </summary>
+    public static string? ShareLinkBaseUrl { get; set; }
+
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
     private readonly IOrderService _orderService;
@@ -307,7 +316,10 @@ public class ExcelService : IExcelService
             ClientFacebookProfileUrl: client?.FacebookProfileUrl,
             NotifiedAt: order.NotifiedAt,
             ClientLatitude: client?.Latitude,
-            ClientLongitude: client?.Longitude
+            ClientLongitude: client?.Longitude,
+            ShareUrl: string.IsNullOrWhiteSpace(ShareLinkBaseUrl)
+                ? null
+                : $"{ShareLinkBaseUrl.TrimEnd('/')}/o/{order.AccessToken}"
         );
     }
 }
