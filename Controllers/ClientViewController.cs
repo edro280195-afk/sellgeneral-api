@@ -107,14 +107,15 @@ public class ClientViewController : ControllerBase
             }
         }
 
-        // Nombre del repartidor: buscamos el Account con rol Driver en este negocio
-        // que esté asociado a la ruta activa del pedido. Si no hay ruta, retorna null.
+        // Nombre y teléfono del repartidor: buscamos el Account con rol Driver en
+        // este negocio asociado a la ruta activa del pedido. Si no hay ruta, retorna null.
+        // (La ruta se identifica por DriverToken, sin FK directa a Account; se toma el
+        // chofer Driver del tenant como mejor esfuerzo — se refina cuando se vincule
+        // la ruta a una cuenta concreta.)
         string? courierName = null;
+        string? courierPhone = null;
         if (order.DeliveryRouteId.HasValue && order.DeliveryRoute != null)
         {
-            // El DriverToken de la ruta es el JWT del repartidor; buscamos el Account
-            // mediante la Membership Driver que coincida. Si no se encuentra, usamos
-            // el nombre de la ruta como fallback legible.
             var driverAccount = await _db.Memberships
                 .AsNoTracking()
                 .Where(m => m.BusinessId == order.BusinessId && m.Role == MembershipRole.Driver)
@@ -122,11 +123,12 @@ public class ClientViewController : ControllerBase
                     _db.Accounts.AsNoTracking(),
                     m => m.AccountId,
                     a => a.Id,
-                    (m, a) => a.DisplayName
+                    (m, a) => new { a.DisplayName, a.Phone }
                 )
                 .FirstOrDefaultAsync();
 
-            courierName = driverAccount ?? order.DeliveryRoute.Name;
+            courierName = driverAccount?.DisplayName ?? order.DeliveryRoute.Name;
+            courierPhone = driverAccount?.Phone;
         }
 
         // Evaluación previa del pedido (si la clienta ya calificó)
@@ -212,6 +214,7 @@ public class ClientViewController : ControllerBase
             BusinessName: business?.Name,
             BusinessLogoUrl: business?.LogoUrl,
             CourierName: courierName,
+            CourierPhone: courierPhone,
             Rating: existingRating
         ));
     }

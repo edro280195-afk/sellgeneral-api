@@ -490,6 +490,8 @@ public record ClientOrderView(
     string? BusinessLogoUrl = null,
     /// <summary>Nombre del repartidor asignado a la ruta. Null si aún no hay ruta activa.</summary>
     string? CourierName = null,
+    /// <summary>Teléfono del repartidor (para el botón de llamar). Null si no hay ruta/chofer.</summary>
+    string? CourierPhone = null,
     /// <summary>Evaluación previa si la clienta ya calificó este pedido. Null si aún no.</summary>
     OrderRatingDto? Rating = null
 );
