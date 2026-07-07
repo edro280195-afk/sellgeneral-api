@@ -1529,6 +1529,38 @@ public record UpdateMercadoPagoPaymentSettingsRequest(
     string? AccessToken = null,
     bool ClearAccessToken = false);
 
+public record PayoutAccountDto(
+    int Id,
+    string Kind,
+    string KindLabel,
+    string HolderName,
+    string? BankName,
+    string? Alias,
+    string MaskedNumber,
+    int NumberLength,
+    string? Notes,
+    bool IsDefault,
+    DateTime CreatedAt,
+    DateTime UpdatedAt);
+
+public record CreatePayoutAccountRequest(
+    string Kind,
+    string HolderName,
+    string AccountNumber,
+    string? BankName = null,
+    string? Alias = null,
+    string? Notes = null,
+    bool IsDefault = false);
+
+public record UpdatePayoutAccountRequest(
+    string? Kind = null,
+    string? HolderName = null,
+    string? AccountNumber = null,
+    string? BankName = null,
+    string? Alias = null,
+    string? Notes = null,
+    bool? IsDefault = null);
+
 public record SubscriptionSummaryDto(
     string EffectivePlan,
     string SubscriptionStatus,

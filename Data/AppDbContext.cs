@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     private const int DefaultBusinessId = 1;
     private readonly ICurrentTenant? _tenant;
     private readonly IDataProtector? _mercadoPagoTokenProtector;
+    private readonly IDataProtector? _payoutAccountProtector;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -22,6 +23,7 @@ public class AppDbContext : DbContext
     {
         _tenant = tenant;
         _mercadoPagoTokenProtector = dataProtectionProvider.CreateProtector("EntregasApi.Business.MercadoPagoAccessToken");
+        _payoutAccountProtector = dataProtectionProvider.CreateProtector("EntregasApi.PayoutAccount.AccountNumber");
     }
 
     public int ActiveBusinessId => _tenant?.ActiveBusinessId ?? DefaultBusinessId;
@@ -54,6 +56,7 @@ public class AppDbContext : DbContext
     public DbSet<PushSubscriptionModel> PushSubscriptions => Set<PushSubscriptionModel>();
     public DbSet<OrderPayment> OrderPayments => Set<OrderPayment>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<PayoutAccount> PayoutAccounts => Set<PayoutAccount>();
     public DbSet<SalesPeriod> SalesPeriods => Set<SalesPeriod>();
     public DbSet<OrderPackage> OrderPackages => Set<OrderPackage>();
     public DbSet<FcmToken> FcmTokens => Set<FcmToken>();
@@ -279,6 +282,33 @@ public class AppDbContext : DbContext
                   .WithMany(s => s.Payments)
                   .HasForeignKey(p => p.CashRegisterSessionId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PayoutAccount>(entity =>
+        {
+            entity.ToTable("PayoutAccounts");
+
+            entity.Property(p => p.Kind)
+                  .HasConversion<string>()
+                  .HasMaxLength(30);
+
+            entity.Property(p => p.AccountNumber)
+                  .HasMaxLength(700)
+                  .HasConversion(
+                      number => ProtectPayoutAccountNumber(number),
+                      number => UnprotectPayoutAccountNumber(number));
+
+            entity.Property(p => p.IsActive)
+                  .HasDefaultValue(true);
+
+            entity.Property(p => p.CreatedAt)
+                  .HasDefaultValueSql("NOW()");
+
+            entity.Property(p => p.UpdatedAt)
+                  .HasDefaultValueSql("NOW()");
+
+            entity.HasIndex(p => new { p.BusinessId, p.IsActive, p.IsDefault })
+                  .HasDatabaseName("IX_PayoutAccounts_Business_Default");
         });
 
         modelBuilder.Entity<CashRegisterSession>(entity =>
@@ -562,6 +592,30 @@ public class AppDbContext : DbContext
         catch (CryptographicException)
         {
             return token;
+        }
+    }
+
+    private string ProtectPayoutAccountNumber(string number)
+    {
+        return string.IsNullOrWhiteSpace(number) || _payoutAccountProtector is null
+            ? number
+            : _payoutAccountProtector.Protect(number);
+    }
+
+    private string UnprotectPayoutAccountNumber(string number)
+    {
+        if (string.IsNullOrWhiteSpace(number) || _payoutAccountProtector is null)
+        {
+            return number;
+        }
+
+        try
+        {
+            return _payoutAccountProtector.Unprotect(number);
+        }
+        catch (CryptographicException)
+        {
+            return number;
         }
     }
 }
