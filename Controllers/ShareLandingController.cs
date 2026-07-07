@@ -174,6 +174,16 @@ public class ShareLandingController : ControllerBase
         var iosStore = _config["App:IosStoreUrl"];
         var androidHref = BuildStoreHref(androidStore, token);
 
+        // "Abrir en la app" robusto para navegadores in-app (Messenger, WhatsApp,
+        // Instagram) donde App Links NO dispara: en Android usamos intent:// que
+        // abre la app instalada y, si no está y hay tienda configurada, cae a ella
+        // (browser_fallback_url). En iOS usamos el scheme nenis://.
+        var intentFallback = androidHref != null
+            ? $"S.browser_fallback_url={Uri.EscapeDataString(androidHref)};"
+            : "";
+        var intentUrl =
+            $"intent://app.nenisapp.com/o/{Uri.EscapeDataString(token)}#Intent;scheme=https;package={AndroidPackage};{intentFallback}end";
+
         string teaser;
         if (hasOrder)
         {
@@ -214,10 +224,10 @@ public class ShareLandingController : ControllerBase
 
         var androidBtn = androidHref == null
             ? "<div class=\"pill soon\">Android · muy pronto</div>"
-            : $"<a class=\"pill\" href=\"{HtmlEncode(androidHref)}\">Descargar para Android</a>";
+            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(androidHref)}\">Descargar para Android</a>";
         var iosBtn = string.IsNullOrWhiteSpace(iosStore)
             ? "<div class=\"pill soon\">iPhone · muy pronto</div>"
-            : $"<a class=\"pill\" href=\"{HtmlEncode(iosStore)}\">Descargar para iPhone</a>";
+            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(iosStore)}\">Descargar para iPhone</a>";
 
         return $$"""
         <!DOCTYPE html>
@@ -252,6 +262,8 @@ public class ShareLandingController : ControllerBase
                     background:linear-gradient(135deg,var(--pink2),var(--pink)); color:#fff;
                     box-shadow:0 12px 26px -12px rgba(255,0,114,.7); }
             .pill.soon { background:#F3E4EC; color:var(--muted); box-shadow:none; }
+            .pill.secondary { background:#fff; color:var(--pink); border:1.5px solid #FFD0E2; box-shadow:none; }
+            .hint { color:var(--muted); font-size:12px; margin:2px 0 14px; }
             .ghost { display:block; text-align:center; text-decoration:none; color:var(--pink); font-weight:700;
                      font-size:14px; padding:12px; }
           </style>
@@ -262,10 +274,23 @@ public class ShareLandingController : ControllerBase
             {{teaser}}
             <p class="headline">Todo tu pedido, en la app</p>
             <p class="sub">Rastreo en vivo, pagos, puntos y avisos — de {{store}} y de todas tus tiendas.</p>
+            <a class="pill" id="open-app" href="{{HtmlEncode(scheme)}}" data-android="{{HtmlEncode(intentUrl)}}">Abrir en la app</a>
+            <p class="hint">¿Aún no la tienes? Descárgala:</p>
             {{androidBtn}}
             {{iosBtn}}
-            <a class="ghost" href="{{HtmlEncode(scheme)}}">Ya tengo la app · Abrir mi pedido</a>
           </div>
+          <script>
+            (function () {
+              var el = document.getElementById('open-app');
+              if (!el) return;
+              var android = el.getAttribute('data-android');
+              // En Android preferimos intent:// (abre la app aunque el link venga
+              // de un navegador in-app; si no está, cae a la tienda).
+              if (android && /android/i.test(navigator.userAgent)) {
+                el.setAttribute('href', android);
+              }
+            })();
+          </script>
         </body>
         </html>
         """;
