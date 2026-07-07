@@ -394,6 +394,7 @@ public class AuthControllerFacebookTests
         return new AuthController(
             db,
             new TokenService(config),
+            new RefreshTokenService(db),
             new FakeHostEnvironment(),
             config,
             new FakePhoneVerificationService(),

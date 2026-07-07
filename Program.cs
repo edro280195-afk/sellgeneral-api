@@ -203,6 +203,7 @@ builder.Services.AddScoped<ICurrentBusiness, CurrentBusiness>();
 builder.Services.AddScoped<ICurrentAccount, CurrentAccount>();
 builder.Services.AddScoped<IAuthorizationHandler, MembershipAuthorizationHandler>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();

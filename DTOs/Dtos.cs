@@ -11,16 +11,25 @@ public record LoginResponse(
     string Role,
     DateTime ExpiresAt,
     int AccountId,
-    List<AuthMembershipDto> Memberships);
+    List<AuthMembershipDto> Memberships,
+    // Refresh token opaco para re-autenticar en silencio al expirar el JWT.
+    string? RefreshToken = null);
 public record RegisterRequest(string Name, string Email, string Password);
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
+
+/// <summary>Canje de un refresh token por una sesión nueva (o logout).</summary>
+public record RefreshRequest(string RefreshToken);
+
 public record VerifyPhoneLoginRequest(
     string Phone,
     string Code,
     string? AccountType = null,
     string? BusinessName = null,
-    string? City = null);
+    string? City = null,
+    // Nombre opcional para el alta passwordless pre-llenada desde el pedido.
+    string? FirstName = null,
+    string? LastName = null);
 
 // ── Registro/acceso de la compradora por teléfono + contraseña (confirmación WhatsApp) ──
 

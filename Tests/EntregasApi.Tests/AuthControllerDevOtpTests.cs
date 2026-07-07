@@ -35,6 +35,7 @@ public class AuthControllerDevOtpTests
         return new AuthController(
             ctx,
             new TokenService(config),
+            new RefreshTokenService(ctx),
             new FakeHostEnvironment(env),
             config,
             phoneVerification ?? new FakePhoneVerificationService(),

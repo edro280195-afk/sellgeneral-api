@@ -36,6 +36,7 @@ public class AuthController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
+    private readonly IRefreshTokenService _refreshTokens;
     private readonly IHostEnvironment _env;
     private readonly IConfiguration _config;
     private readonly IPhoneVerificationService _phoneVerification;
@@ -45,6 +46,7 @@ public class AuthController : ControllerBase
     public AuthController(
         AppDbContext db,
         ITokenService tokenService,
+        IRefreshTokenService refreshTokens,
         IHostEnvironment env,
         IConfiguration config,
         IPhoneVerificationService phoneVerification,
@@ -53,6 +55,7 @@ public class AuthController : ControllerBase
     {
         _db = db;
         _tokenService = tokenService;
+        _refreshTokens = refreshTokens;
         _env = env;
         _config = config;
         _phoneVerification = phoneVerification;
@@ -82,7 +85,9 @@ public class AuthController : ControllerBase
     // ── Acceso de equipo (correo + contraseña, cuentas legacy admin/conductor) ──
 
     [HttpPost("register")]
-    public async Task<ActionResult<LoginResponse>> Register(RegisterRequest req)
+    public async Task<ActionResult<LoginResponse>> Register(
+        RegisterRequest req,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(req.Name) ||
             string.IsNullOrWhiteSpace(req.Email) ||
@@ -112,11 +117,13 @@ public class AuthController : ControllerBase
         _db.Accounts.Add(account);
         await _db.SaveChangesAsync();
 
-        return Ok(BuildLoginResponse(account, []));
+        return Ok(await BuildLoginResponseAsync(account, [], cancellationToken));
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<LoginResponse>> Login(LoginRequest req)
+    public async Task<ActionResult<LoginResponse>> Login(
+        LoginRequest req,
+        CancellationToken cancellationToken = default)
     {
         var email = NormalizeEmail(req.Email);
         var account = await _db.Accounts
@@ -130,7 +137,44 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Correo o contraseña incorrectos." });
         }
 
-        return Ok(BuildLoginResponse(account, account.Memberships));
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
+    }
+
+    // ── Sesión: refresh token (re-autenticación silenciosa para todas las cuentas) ──
+
+    /// <summary>
+    /// Canjea un refresh token por una sesión nueva y rota el token. La app lo
+    /// llama al arrancar si el JWT expiró, evitando pedir credenciales de nuevo.
+    /// </summary>
+    [HttpPost("refresh")]
+    public async Task<ActionResult<LoginResponse>> Refresh(
+        RefreshRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _refreshTokens.RotateAsync(req.RefreshToken, cancellationToken);
+        if (result is null)
+        {
+            return Unauthorized(new
+            {
+                error = "invalid_refresh_token",
+                message = "Tu sesión expiró. Vuelve a iniciar sesión."
+            });
+        }
+
+        return Ok(BuildLoginResponseCore(
+            result.Account,
+            result.Account.Memberships,
+            result.RefreshToken));
+    }
+
+    /// <summary>Cierra la sesión revocando el refresh token (best-effort).</summary>
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(
+        RefreshRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        await _refreshTokens.RevokeAsync(req.RefreshToken, cancellationToken);
+        return NoContent();
     }
 
     // ── Compradora: registro por teléfono + contraseña (confirmación por WhatsApp) ──
@@ -288,7 +332,7 @@ public class AuthController : ControllerBase
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return Ok(BuildLoginResponse(account, account.Memberships));
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 
     /// <summary>
@@ -331,7 +375,7 @@ public class AuthController : ControllerBase
             });
         }
 
-        return Ok(BuildLoginResponse(account, account.Memberships));
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 
     /// <summary>
@@ -538,9 +582,12 @@ public class AuthController : ControllerBase
 
         if (account is null)
         {
+            var displayName = ComposeDisplayName(req.FirstName, req.LastName);
             account = new Account
             {
-                DisplayName = "Clienta",
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Clienta" : displayName,
+                FirstName = string.IsNullOrWhiteSpace(req.FirstName) ? null : req.FirstName.Trim(),
+                LastName = string.IsNullOrWhiteSpace(req.LastName) ? null : req.LastName.Trim(),
                 Phone = phone,
                 PhoneVerifiedAt = DateTime.UtcNow
             };
@@ -553,7 +600,7 @@ public class AuthController : ControllerBase
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        return Ok(BuildLoginResponse(account, account.Memberships));
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 
     // ── Facebook Login ──
@@ -625,7 +672,7 @@ public class AuthController : ControllerBase
                 requiresExistingPassword: false));
         }
 
-        return Ok(BuildLoginResponse(account, account.Memberships));
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 
     /// <summary>
@@ -808,7 +855,7 @@ public class AuthController : ControllerBase
             }
 
             await _db.SaveChangesAsync(cancellationToken);
-            return Ok(BuildLoginResponse(account, account.Memberships));
+            return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
         }
 
         try
@@ -832,7 +879,11 @@ public class AuthController : ControllerBase
 
     // ── Helpers ──
 
-    private LoginResponse BuildLoginResponse(Account account, IEnumerable<Membership> memberships)
+    /// <summary>Ensambla la respuesta de sesión (JWT) con un refresh token ya conocido.</summary>
+    private LoginResponse BuildLoginResponseCore(
+        Account account,
+        IEnumerable<Membership> memberships,
+        string? refreshToken)
     {
         var membershipList = memberships
             .OrderBy(m => m.BusinessId)
@@ -850,7 +901,18 @@ public class AuthController : ControllerBase
             role,
             DateTime.UtcNow.AddDays(7),
             account.Id,
-            membershipList);
+            membershipList,
+            refreshToken);
+    }
+
+    /// <summary>Emite un refresh token nuevo y devuelve la sesión completa.</summary>
+    private async Task<LoginResponse> BuildLoginResponseAsync(
+        Account account,
+        IEnumerable<Membership> memberships,
+        CancellationToken cancellationToken)
+    {
+        var refreshToken = await _refreshTokens.IssueAsync(account.Id, cancellationToken);
+        return BuildLoginResponseCore(account, memberships, refreshToken);
     }
 
     private ActionResult<LoginResponse>? ValidateFacebookProviderConfiguration(

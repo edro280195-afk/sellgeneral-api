@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
 
     // Tablas existentes
     public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Business> Businesses => Set<Business>();
     public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Client> Clients => Set<Client>();
@@ -157,6 +158,17 @@ public class AppDbContext : DbContext
             entity.HasOne(m => m.Business)
                   .WithMany(b => b.Memberships)
                   .HasForeignKey(m => m.BusinessId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasIndex(t => t.TokenHash).IsUnique();
+            entity.HasIndex(t => t.AccountId);
+            entity.Property(t => t.CreatedAt).HasDefaultValueSql("NOW()");
+            entity.HasOne(t => t.Account)
+                  .WithMany()
+                  .HasForeignKey(t => t.AccountId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
