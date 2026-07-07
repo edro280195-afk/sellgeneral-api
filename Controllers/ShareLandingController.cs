@@ -93,7 +93,10 @@ public class ShareLandingController : ControllerBase
             Status: order.Status.ToString(),
             StatusLabel: StatusLabel(order.Status),
             ScheduledDeliveryDate: order.ScheduledDeliveryDate,
-            IsExpired: order.ExpiresAt < DateTime.UtcNow));
+            IsExpired: order.ExpiresAt < DateTime.UtcNow,
+            // Solo se expone a quien posee el token del pedido, para pre-llenar
+            // el registro passwordless (y disparar el match por teléfono).
+            ClientPhone: order.Client?.Phone));
     }
 
     /// <summary>Android App Links: verifica el dominio para /o/ y /pedido/.</summary>
@@ -335,4 +338,5 @@ public record OrderTeaserDto(
     string Status,
     string StatusLabel,
     DateTime? ScheduledDeliveryDate,
-    bool IsExpired);
+    bool IsExpired,
+    string? ClientPhone = null);
