@@ -28,6 +28,9 @@ public class FeatureGateWiringTests
         AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.GetMergeAudits), Feature.FacebookImport);
         AssertMethodGate<OrdersController>(nameof(OrdersController.Export), Feature.Exports);
         AssertMethodGate<DriverController>(nameof(DriverController.CamiCommand), Feature.CamiAssistant);
+        AssertMethodGate<LiveAnnouncementController>(nameof(LiveAnnouncementController.Start), Feature.LivePush);
+        AssertMethodGate<LiveAnnouncementController>(nameof(LiveAnnouncementController.End), Feature.LivePush);
+        AssertMethodGate<StoreFollowersController>(nameof(StoreFollowersController.SetVip), Feature.VipDrops);
     }
 
     [Fact]
@@ -73,6 +76,9 @@ public class FeatureGateWiringTests
         AssertClassAttribute<BuyerTandasController, SkipTenantResolutionAttribute>();
         AssertClassAttribute<BuyerRafflesController, SkipTenantResolutionAttribute>();
         AssertClassAttribute<ClientClaimController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerFollowController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerDeviceController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerFeedPostsController, SkipTenantResolutionAttribute>();
     }
 
     private static void AssertClassGate<TController>(Feature expectedFeature)

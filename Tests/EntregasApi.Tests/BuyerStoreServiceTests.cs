@@ -35,6 +35,51 @@ public class BuyerStoreServiceTests
     }
 
     [Fact]
+    public async Task GetStore_FollowerWithoutClient_CanViewStore()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Sofía", Phone = "8681452290" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        // Sigue la tienda pero nunca le ha comprado (sin Client).
+        ctx.StoreFollowers.Add(new StoreFollower { BusinessId = business.Id, AccountId = account.Id });
+        await ctx.SaveChangesAsync();
+
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
+
+        Assert.True(store.IsFollowing);
+        Assert.Equal(1, store.FollowerCount);
+        Assert.Equal(0, store.Points.CurrentPoints);
+    }
+
+    [Fact]
+    public async Task GetStore_WithActiveLiveAnnouncement_ReportsIsLiveNow()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+        ctx.StoreFollowers.Add(new StoreFollower { BusinessId = business.Id, AccountId = account.Id });
+        ctx.LiveAnnouncements.Add(new LiveAnnouncement
+        {
+            BusinessId = business.Id,
+            Title = "Rebajas",
+            StartedAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync();
+
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
+
+        Assert.True(store.IsLiveNow);
+        Assert.Equal("Rebajas", store.LiveAnnouncementTitle);
+    }
+
+    [Fact]
     public async Task GetStore_HappyPath_ReturnsHeaderAndPoints()
     {
         using var ctx = TestDbContextFactory.Create();

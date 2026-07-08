@@ -68,13 +68,19 @@ public class BuyerStoreService : IBuyerStoreService
             throw new StoreNotFoundException("Tienda no encontrada.");
         }
 
-        // Verificar que la compradora tiene un Client reclamado en esta tienda.
+        // Acceso: tener un Client reclamado en esta tienda O seguirla (una
+        // seguidora puede entrar a curiosear sin haberle comprado nunca).
         var myClient = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
             .Where(c => c.AccountId == accountId && c.BusinessId == businessId)
             .Select(c => new { c.Id, c.CurrentPoints })
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (myClient is null)
+        var myFollow = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
+            .Where(f => f.BusinessId == businessId && f.AccountId == accountId && f.UnfollowedAt == null)
+            .Select(f => new { f.IsVip })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (myClient is null && myFollow is null)
         {
             throw new StoreNotFoundException("Esta tienda no está en tu cuenta.");
         }
@@ -134,9 +140,14 @@ public class BuyerStoreService : IBuyerStoreService
         var followerCount = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
             .CountAsync(f => f.BusinessId == businessId && f.UnfollowedAt == null, cancellationToken);
 
-        var myFollow = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
-            .Where(f => f.BusinessId == businessId && f.AccountId == accountId && f.UnfollowedAt == null)
-            .Select(f => new { f.IsVip })
+        // "En vivo ahora": aviso en tiempo real (distinto del pipeline
+        // post-hoc de LiveSession de arriba). TTL de 3h, igual que
+        // LiveAnnouncementService.
+        var liveNowCutoff = DateTime.UtcNow.AddHours(-3);
+        var liveAnnouncement = await _db.LiveAnnouncements.AsNoTracking().IgnoreQueryFilters()
+            .Where(a => a.BusinessId == businessId && a.EndedAt == null && a.StartedAt > liveNowCutoff)
+            .OrderByDescending(a => a.StartedAt)
+            .Select(a => new { a.Title })
             .FirstOrDefaultAsync(cancellationToken);
 
         // Verificada = tiene logo y color de acento configurados.
@@ -173,13 +184,15 @@ public class BuyerStoreService : IBuyerStoreService
             BrandAccentColor: business.BrandAccentColor,
             ClientCount: clientCount,
             IsVerified: isVerified,
-            Points: new BuyerStorePointsDto(myClient.CurrentPoints, nextRewardAt),
+            Points: new BuyerStorePointsDto(myClient?.CurrentPoints ?? 0, nextRewardAt),
             Live: liveDto,
             Products: products,
             ActiveTandasCount: activeTandasCount,
             ActiveRafflesCount: activeRafflesCount,
             FollowerCount: followerCount,
             IsFollowing: myFollow is not null,
-            IsVip: myFollow?.IsVip ?? false);
+            IsVip: myFollow?.IsVip ?? false,
+            IsLiveNow: liveAnnouncement is not null,
+            LiveAnnouncementTitle: liveAnnouncement?.Title);
     }
 }

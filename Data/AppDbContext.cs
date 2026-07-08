@@ -84,9 +84,11 @@ public class AppDbContext : DbContext
     public DbSet<LiveCommentOrder> LiveCommentOrders => Set<LiveCommentOrder>();
     public DbSet<LiveCandidate> LiveCandidates => Set<LiveCandidate>();
 
-    // Comunidad de tienda (seguir, push nativo)
+    // Comunidad de tienda (seguir, push nativo, en vivo, novedades)
     public DbSet<StoreFollower> StoreFollowers => Set<StoreFollower>();
     public DbSet<BuyerDeviceToken> BuyerDeviceTokens => Set<BuyerDeviceToken>();
+    public DbSet<LiveAnnouncement> LiveAnnouncements => Set<LiveAnnouncement>();
+    public DbSet<StorePost> StorePosts => Set<StorePost>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

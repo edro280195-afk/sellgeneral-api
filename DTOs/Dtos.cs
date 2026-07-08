@@ -1438,7 +1438,9 @@ public record BuyerStoreDetailDto(
     int ActiveRafflesCount,
     int FollowerCount,
     bool IsFollowing,
-    bool IsVip);
+    bool IsVip,
+    bool IsLiveNow,
+    string? LiveAnnouncementTitle);
 
 /// <summary>Estado de "seguir" de la compradora sobre una tienda.</summary>
 public record FollowStateDto(
@@ -1459,6 +1461,35 @@ public record StoreFollowerAdminDto(
     DateTime? VipSince);
 
 public record RegisterDeviceRequest(string Token, string Platform);
+
+// ── Comunidad de tienda: en vivo ahora + novedades + VIP ──
+
+public record StartLiveAnnouncementRequest(string? Title);
+
+public record LiveAnnouncementDto(int Id, string? Title, DateTime StartedAt, bool IsActive);
+
+public record CreateStorePostRequest(string Body, string? ImageUrl, bool IsVipOnly);
+
+public record StorePostDto(
+    int Id,
+    string Body,
+    string? ImageUrl,
+    bool IsVipOnly,
+    DateTime CreatedAt);
+
+public record StorePostFeedItemDto(
+    int Id,
+    int BusinessId,
+    string BusinessName,
+    string BrandPrimaryColor,
+    string? LogoUrl,
+    string Body,
+    string? ImageUrl,
+    bool IsVipOnly,
+    bool IsLocked,
+    DateTime CreatedAt);
+
+public record SetFollowerVipRequest(bool IsVip);
 
 /// <summary>
 /// Request para que la compradora aparte un producto de una tienda.
