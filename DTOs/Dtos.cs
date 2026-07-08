@@ -488,6 +488,10 @@ public record ClientOrderView(
     string? BusinessName = null,
     /// <summary>URL del logo del negocio (Cloudinary). Null si la tienda no lo ha subido.</summary>
     string? BusinessLogoUrl = null,
+    /// <summary>URL de Messenger del negocio para contacto de la clienta.</summary>
+    string? BusinessMessengerUrl = null,
+    /// <summary>URL de Facebook del negocio.</summary>
+    string? BusinessFacebookUrl = null,
     /// <summary>Nombre del repartidor asignado a la ruta. Null si aún no hay ruta activa.</summary>
     string? CourierName = null,
     /// <summary>Teléfono del repartidor (para el botón de llamar). Null si no hay ruta/chofer.</summary>
@@ -1236,7 +1240,8 @@ public record BuyerRecentOrderDto(
     string Status,
     int ItemsCount,
     decimal Total,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? AccessToken);
 
 /// <summary>
 /// Filtro aceptado por GET /api/me/orders. "open" agrupa los estados en curso
@@ -1557,12 +1562,16 @@ public record BrandDto(
     string? LogoUrl,
     string? BannerUrl,
     string BrandPrimaryColor,
-    string? BrandAccentColor);
+    string? BrandAccentColor,
+    string? MessengerUrl = null,
+    string? FacebookUrl = null);
 
 public record UpdateBrandRequest(
     string? Name = null,
     string? BrandPrimaryColor = null,
-    string? BrandAccentColor = null);
+    string? BrandAccentColor = null,
+    string? MessengerUrl = null,
+    string? FacebookUrl = null);
 
 public record BrandAssetDto(string Kind, string Url);
 

@@ -82,7 +82,9 @@ public class BrandController : ControllerBase
                 business.LogoUrl,
                 business.BannerUrl,
                 business.BrandPrimaryColor,
-                business.BrandAccentColor),
+                business.BrandAccentColor,
+                business.MessengerUrl,
+                business.FacebookUrl),
             new SubscriptionSummaryDto(
                 snapshot.EffectivePlanTier,
                 snapshot.SubscriptionStatus.ToString(),
@@ -171,13 +173,35 @@ public class BrandController : ControllerBase
             }
         }
 
+        if (request.MessengerUrl is not null)
+        {
+            var url = request.MessengerUrl.Trim();
+            if (url.Length > 300)
+            {
+                return BadRequest(new { message = "messengerUrl no puede exceder 300 caracteres." });
+            }
+            business.MessengerUrl = string.IsNullOrWhiteSpace(url) ? null : url;
+        }
+
+        if (request.FacebookUrl is not null)
+        {
+            var url = request.FacebookUrl.Trim();
+            if (url.Length > 300)
+            {
+                return BadRequest(new { message = "facebookUrl no puede exceder 300 caracteres." });
+            }
+            business.FacebookUrl = string.IsNullOrWhiteSpace(url) ? null : url;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new BrandDto(
             business.LogoUrl,
             business.BannerUrl,
             business.BrandPrimaryColor,
-            business.BrandAccentColor));
+            business.BrandAccentColor,
+            business.MessengerUrl,
+            business.FacebookUrl));
     }
 
     [HttpGet("payment-settings")]

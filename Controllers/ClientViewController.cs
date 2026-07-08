@@ -63,7 +63,7 @@ public class ClientViewController : ControllerBase
         var business = await _db.Businesses
             .AsNoTracking()
             .Where(b => b.Id == order.BusinessId)
-            .Select(b => new { b.Name, b.LogoUrl, b.MercadoPagoPublicKey })
+            .Select(b => new { b.Name, b.LogoUrl, b.MessengerUrl, b.FacebookUrl, b.MercadoPagoPublicKey })
             .FirstOrDefaultAsync();
 
         var mercadoPagoPublicKey = business?.MercadoPagoPublicKey;
@@ -213,6 +213,8 @@ public class ClientViewController : ControllerBase
             MercadoPagoPublicKey: mercadoPagoPublicKey,
             BusinessName: business?.Name,
             BusinessLogoUrl: business?.LogoUrl,
+            BusinessMessengerUrl: business?.MessengerUrl,
+            BusinessFacebookUrl: business?.FacebookUrl,
             CourierName: courierName,
             CourierPhone: courierPhone,
             Rating: existingRating

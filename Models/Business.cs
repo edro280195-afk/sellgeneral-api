@@ -42,6 +42,14 @@ public class Business
     [MaxLength(7)]
     public string? BrandAccentColor { get; set; }
 
+    /// <summary>URL de Messenger para contacto de la clienta (ej. https://m.me/mi.tienda).</summary>
+    [MaxLength(300)]
+    public string? MessengerUrl { get; set; }
+
+    /// <summary>URL de Facebook del negocio (ej. https://www.facebook.com/mi.tienda).</summary>
+    [MaxLength(300)]
+    public string? FacebookUrl { get; set; }
+
     // Depot / centro de ruta de este negocio (reemplaza el hardcode Cami:RouteCenterLat/Lng).
     public double DepotLat { get; set; }
     public double DepotLng { get; set; }

@@ -137,7 +137,8 @@ public class BuyerFeedService : IBuyerFeedService
                 o.Status.ToString(),
                 o.ItemsCount,
                 o.Total,
-                o.CreatedAt))
+                o.CreatedAt,
+                o.AccessToken))
             .ToList();
 
         return new BuyerHomeDto(

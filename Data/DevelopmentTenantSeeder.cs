@@ -33,6 +33,9 @@ public static class DevelopmentTenantSeeder
             {
                 business.BrandPrimaryColor = "#FF0072";
             }
+            // Contactos sociales de Regi Bazar (solo si no se han configurado).
+            business.MessengerUrl ??= "https://m.me/regi.bazar.852309";
+            business.FacebookUrl ??= "https://www.facebook.com/regi.bazar.852309";
             await db.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -45,6 +48,8 @@ public static class DevelopmentTenantSeeder
             City = "Nuevo Laredo",
             FrontendUrl = "https://regibazar.com",
             BrandPrimaryColor = "#FF0072",
+            MessengerUrl = "https://m.me/regi.bazar.852309",
+            FacebookUrl = "https://www.facebook.com/regi.bazar.852309",
             DepotLat = 27.4861,
             DepotLng = -99.5069,
             GeocodingRegion = "Nuevo Laredo, Tamaulipas, MX",
