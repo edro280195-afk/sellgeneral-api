@@ -16,6 +16,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/client-claims")]
 [Authorize]
+[SkipTenantResolution]
 public class ClientClaimController : ControllerBase
 {
     private readonly IClientClaimService _service;

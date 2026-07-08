@@ -130,6 +130,7 @@ public class TandaDto
     public decimal WeeklyAmount { get; set; }
     public decimal PenaltyAmount { get; set; }
     public DateTime StartDate { get; set; }
+    public int CurrentWeek { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public string? AccessToken { get; set; }

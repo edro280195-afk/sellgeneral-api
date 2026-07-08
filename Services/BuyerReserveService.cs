@@ -116,6 +116,7 @@ public class BuyerReserveService : IBuyerReserveService
         // 4. Crear el Order (reusa el patrón de LiveCaptureService.ConfirmCandidate).
         var order = new Order
         {
+            BusinessId = request.BusinessId,
             ClientId = myClient.Id,
             Status = OrderStatus.Pending,
             OrderType = OrderType.PickUp,
@@ -130,6 +131,7 @@ public class BuyerReserveService : IBuyerReserveService
         };
         order.Items.Add(new OrderItem
         {
+            BusinessId = request.BusinessId,
             ProductId = product.Id,
             ProductName = product.Name,
             Quantity = request.Quantity,

@@ -13,6 +13,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me/raffles")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerRafflesController : ControllerBase
 {
     private readonly IBuyerRafflesService _service;

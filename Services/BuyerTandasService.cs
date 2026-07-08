@@ -113,8 +113,10 @@ public class BuyerTandasService : IBuyerTandasService
 
         foreach (var t in tandas.OrderByDescending(t => t.StartDate))
         {
-            var weeksSinceStart = (today - t.StartDate.Date).Days / 7;
-            var currentWeek = Math.Clamp(weeksSinceStart + 1, 1, t.TotalWeeks);
+            var currentWeek = TandaWeekCalculator.CalculateClampedCurrentWeek(
+                t.StartDate,
+                t.TotalWeeks,
+                today);
 
             // Buscar la participación de la compradora en esta tanda
             // (puede estar en cualquiera de sus Client de la misma tienda).

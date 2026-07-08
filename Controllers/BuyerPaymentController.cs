@@ -13,6 +13,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me/payments")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerPaymentController : ControllerBase
 {
     private readonly IBuyerPaymentService _service;

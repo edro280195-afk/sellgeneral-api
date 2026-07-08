@@ -61,6 +61,20 @@ public class FeatureGateWiringTests
         Assert.NotNull(changePlan.GetCustomAttributes(typeof(BypassSubscriptionLockAttribute), inherit: true).SingleOrDefault());
     }
 
+    [Fact]
+    public void BuyerControllers_SkipTenantResolution()
+    {
+        AssertClassAttribute<BuyerController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerStoreController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerReserveController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerNotificationController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerPaymentController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerAddressController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerTandasController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<BuyerRafflesController, SkipTenantResolutionAttribute>();
+        AssertClassAttribute<ClientClaimController, SkipTenantResolutionAttribute>();
+    }
+
     private static void AssertClassGate<TController>(Feature expectedFeature)
     {
         var gate = typeof(TController)
@@ -82,5 +96,15 @@ public class FeatureGateWiringTests
             .SingleOrDefault(gate => gate.Feature == expectedFeature);
 
         Assert.NotNull(gate);
+    }
+
+    private static void AssertClassAttribute<TController, TAttribute>()
+        where TAttribute : Attribute
+    {
+        var attribute = typeof(TController)
+            .GetCustomAttributes(typeof(TAttribute), inherit: true)
+            .SingleOrDefault();
+
+        Assert.NotNull(attribute);
     }
 }

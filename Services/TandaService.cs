@@ -136,7 +136,7 @@ public class TandaService : ITandaService
         if (tanda == null)
             throw new Exception("La tanda especificada no existe.");
 
-        int currentWeek = CalculateCurrentWeek(tanda.StartDate);
+        int currentWeek = TandaWeekCalculator.CalculateCurrentWeek(tanda.StartDate);
 
         if (currentWeek < 1 || currentWeek > tanda.TotalWeeks)
             return null;
@@ -216,7 +216,7 @@ public class TandaService : ITandaService
 
         if (tanda == null) throw new Exception("La tanda especificada no existe.");
 
-        int currentWeek = CalculateCurrentWeek(tanda.StartDate);
+        int currentWeek = TandaWeekCalculator.CalculateCurrentWeek(tanda.StartDate);
 
         foreach (var participant in tanda.Participants.Where(p => p.Status == "Active"))
         {
@@ -293,7 +293,7 @@ public class TandaService : ITandaService
 
         if (tanda == null) return null;
 
-        int currentWeek = CalculateCurrentWeek(tanda.StartDate);
+        int currentWeek = TandaWeekCalculator.CalculateCurrentWeek(tanda.StartDate);
         var mercadoPagoPublicKey = await _db.Businesses
             .AsNoTracking()
             .Where(b => b.Id == tanda.BusinessId &&
@@ -352,6 +352,7 @@ public class TandaService : ITandaService
         WeeklyAmount = t.WeeklyAmount,
         PenaltyAmount = t.PenaltyAmount,
         StartDate = t.StartDate,
+        CurrentWeek = TandaWeekCalculator.CalculateCurrentWeek(t.StartDate),
         Status = t.Status,
         CreatedAt = t.CreatedAt,
         AccessToken = t.AccessToken,
@@ -406,17 +407,6 @@ public class TandaService : ITandaService
         return $"{firstName} {lastInitial}";
     }
 
-    private int CalculateCurrentWeek(DateTime startDate)
-    {
-        var timeSpan = DateTime.UtcNow.Date - startDate.Date;
-        int days = (int)timeSpan.TotalDays;
-        
-        if (days <= 0) return 1;
-        // Restamos 1 día para que el cambio de semana ocurra el Lunes (día 8) 
-        // y no el Domingo (día 7), permitiendo que la entrega dominical sea el cierre de la semana.
-        return ((days - 1) / 7) + 1;
-    }
-
     public async Task DeletePaymentAsync(Guid paymentId)
     {
         var payment = await _db.TandaPayments.FindAsync(paymentId);
@@ -458,3 +448,4 @@ public class TandaService : ITandaService
         await transaction.CommitAsync();
     }
 }
+

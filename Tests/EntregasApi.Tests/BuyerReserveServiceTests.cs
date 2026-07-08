@@ -196,6 +196,41 @@ public class BuyerReserveServiceTests
     }
 
     [Fact]
+    public async Task Reserve_AssignsRequestedBusinessId_WithoutActiveTenant()
+    {
+        using var ctx = NewContext();
+        var defaultBusiness = NewBusiness("Default", "default", "#6C4AE0");
+        var requestedBusiness = NewBusiness("Luna Bella", "luna", "#FF7A59");
+        ctx.Businesses.AddRange(defaultBusiness, requestedBusiness);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        var client = new Client
+        {
+            BusinessId = requestedBusiness.Id, AccountId = account.Id, Name = "Ana",
+            NormalizedName = "ana", Type = "Frecuente",
+        };
+        ctx.Clients.Add(client);
+        var product = NewProduct(requestedBusiness.Id, "Bolsa", 350m, stock: 5);
+        ctx.Products.Add(product);
+        await ctx.SaveChangesAsync();
+
+        var order = await ServiceWith(ctx).ReserveAsync(
+            account.Id,
+            new ReserveProductRequest(requestedBusiness.Id, product.Id, 1),
+            CancellationToken.None);
+
+        var dbOrder = await ctx.Orders.AsNoTracking().IgnoreQueryFilters()
+            .Include(o => o.Items)
+            .FirstAsync(o => o.Id == order.OrderId);
+
+        Assert.Equal(requestedBusiness.Id, order.BusinessId);
+        Assert.Equal(requestedBusiness.Id, dbOrder.BusinessId);
+        Assert.All(dbOrder.Items, item => Assert.Equal(requestedBusiness.Id, item.BusinessId));
+    }
+
+    [Fact]
     public async Task Reserve_DoesNotDecrementStock_AtReserveTime()
     {
         using var ctx = NewContext();

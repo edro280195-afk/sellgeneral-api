@@ -78,8 +78,8 @@ public class DriverController : ControllerBase
             int? currentWeek = null;
             if (tanda != null)
             {
-                var days = (int)(DateTime.UtcNow.Date - tanda.StartDate.Date).TotalDays;
-                currentWeek = days <= 0 ? 1 : ((days - 1) / 7) + 1;
+                currentWeek = TandaWeekCalculator.CalculateCurrentWeek(
+                    tanda.StartDate);
             }
 
             return new RouteDeliveryDto(

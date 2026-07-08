@@ -13,6 +13,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerController : ControllerBase
 {
     private readonly IBuyerFeedService _feed;

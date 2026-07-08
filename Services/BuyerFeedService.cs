@@ -65,6 +65,13 @@ public class BuyerFeedService : IBuyerFeedService
             .ToListAsync(cancellationToken);
         var bizById = businesses.ToDictionary(b => b.Id);
 
+        var liveBusinessIds = await _db.LiveSessions.AsNoTracking().IgnoreQueryFilters()
+            .Where(l => businessIds.Contains(l.BusinessId)
+                        && l.Status == LiveSessionStatus.Ready)
+            .Select(l => l.BusinessId)
+            .ToListAsync(cancellationToken);
+        var liveBusinesses = liveBusinessIds.ToHashSet();
+
         string brandOf(int id) =>
             bizById.TryGetValue(id, out var b) && !string.IsNullOrWhiteSpace(b.BrandPrimaryColor)
                 ? b.BrandPrimaryColor
@@ -85,7 +92,7 @@ public class BuyerFeedService : IBuyerFeedService
                     brandOf(g.Key),
                     b?.LogoUrl,
                     g.Sum(c => c.CurrentPoints),
-                    false);
+                    liveBusinesses.Contains(g.Key));
             })
             .OrderByDescending(s => s.Points)
             .ToList();
@@ -133,6 +140,12 @@ public class BuyerFeedService : IBuyerFeedService
                 o.CreatedAt))
             .ToList();
 
-        return new BuyerHomeDto(displayName, totalPoints, activeDto, stores, recent, 0);
+        return new BuyerHomeDto(
+            displayName,
+            totalPoints,
+            activeDto,
+            stores,
+            recent,
+            liveBusinessIds.Count);
     }
 }

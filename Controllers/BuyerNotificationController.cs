@@ -14,6 +14,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me/notifications")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerNotificationController : ControllerBase
 {
     private readonly IBuyerNotificationService _service;

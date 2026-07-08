@@ -1526,6 +1526,14 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>GET /api/orders/capture-settings - Configuracion para capturar pedidos.</summary>
+    [HttpGet("capture-settings")]
+    public async Task<ActionResult<OrderCaptureSettingsDto>> GetCaptureSettings()
+    {
+        var settings = await _db.GetOrCreateTenantSettingsAsync();
+        return Ok(new OrderCaptureSettingsDto(settings.DefaultShippingCost));
+    }
+
     // ---------------------------------------------------------
     // 📦 LOGÍSTICA DE BOLSAS Y ETIQUETAS (SISTEMA ANTI-PÉRDIDAS)
     // ---------------------------------------------------------

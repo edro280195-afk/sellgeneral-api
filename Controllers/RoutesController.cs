@@ -266,8 +266,8 @@ public class RoutesController : ControllerBase
                 int? currentWeek = null;
                 if (p.Tanda != null)
                 {
-                    var days = (int)(DateTime.UtcNow.Date - p.Tanda.StartDate.Date).TotalDays;
-                    currentWeek = days <= 0 ? 1 : ((days - 1) / 7) + 1;
+                    currentWeek = TandaWeekCalculator.CalculateCurrentWeek(
+                        p.Tanda.StartDate);
                 }
                 stopsDto.Add(new PreviewStopDto(
                     Kind: "Tanda",
@@ -470,8 +470,8 @@ public class RoutesController : ControllerBase
             int? currentWeek = null;
             if (tanda != null)
             {
-                var days = (int)(DateTime.UtcNow.Date - tanda.StartDate.Date).TotalDays;
-                currentWeek = days <= 0 ? 1 : ((days - 1) / 7) + 1;
+                currentWeek = TandaWeekCalculator.CalculateCurrentWeek(
+                    tanda.StartDate);
             }
 
             return new RouteDeliveryDto(
@@ -934,8 +934,9 @@ public class RoutesController : ControllerBase
             .Select(p =>
             {
                 var startDate = p.Tanda!.StartDate.Date;
-                var days = (int)(nowUtc - startDate).TotalDays;
-                int currentWeek = days <= 0 ? 1 : ((days - 1) / 7) + 1;
+                int currentWeek = TandaWeekCalculator.CalculateCurrentWeek(
+                    startDate,
+                    nowUtc);
                 return new AvailableTandaDto(
                     TandaParticipantId: p.Id,
                     TandaId: p.TandaId,

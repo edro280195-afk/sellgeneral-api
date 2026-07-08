@@ -244,7 +244,13 @@ public class ClientsController : ControllerBase
                     c.Type,
                     c.DeliveryInstructions,
                     c.Latitude,
-                    c.Longitude
+                    c.Longitude,
+                    Aliases = c.Aliases
+                        .OrderByDescending(a => a.TimesSeen)
+                        .ThenBy(a => a.Alias)
+                        .Select(a => a.Alias)
+                        .ToList(),
+                    c.FacebookProfileUrl
             })
             .OrderByDescending(x => x.TotalSpent)
             .ToListAsync();
@@ -260,7 +266,9 @@ public class ClientsController : ControllerBase
             c.Type,
             c.DeliveryInstructions,
             Latitude: c.Latitude,
-            Longitude: c.Longitude
+            Longitude: c.Longitude,
+            Aliases: c.Aliases,
+            FacebookProfileUrl: c.FacebookProfileUrl
         )).ToList();
 
         return Ok(clients);
@@ -284,13 +292,32 @@ public class ClientsController : ControllerBase
                 c.Type,
                 c.DeliveryInstructions,
                 c.Latitude,
-                c.Longitude
+                c.Longitude,
+                Aliases = c.Aliases
+                    .OrderByDescending(a => a.TimesSeen)
+                    .ThenBy(a => a.Alias)
+                    .Select(a => a.Alias)
+                    .ToList(),
+                c.FacebookProfileUrl
             })
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (c == null) return NotFound();
 
-        return Ok(new ClientDto(c.Id, c.Name, c.Phone, c.Address, c.Tag.ToString(), c.OrdersCount, c.TotalSpent, c.Type, c.DeliveryInstructions, Latitude: c.Latitude, Longitude: c.Longitude));
+        return Ok(new ClientDto(
+            c.Id,
+            c.Name,
+            c.Phone,
+            c.Address,
+            c.Tag.ToString(),
+            c.OrdersCount,
+            c.TotalSpent,
+            c.Type,
+            c.DeliveryInstructions,
+            Latitude: c.Latitude,
+            Longitude: c.Longitude,
+            Aliases: c.Aliases,
+            FacebookProfileUrl: c.FacebookProfileUrl));
     }
 
     [HttpPut("{id:int}")]

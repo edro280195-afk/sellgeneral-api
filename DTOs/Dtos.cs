@@ -600,6 +600,8 @@ public record ActivePeriodSummaryDto(
 public record MonthlySalesDto(string Month, decimal Sales);
 public record CommonProductDto(string Name, int Count, decimal TypicalPrice);
 
+public record OrderCaptureSettingsDto(decimal DefaultShippingCost);
+
 // ── AI Insights ──
 public record AiInsightDto(
     string Category, // 'Finanzas', 'Ventas', 'Clientas', 'Riesgo', 'Operación'

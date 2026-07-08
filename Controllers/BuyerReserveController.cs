@@ -14,6 +14,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me/reserve")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerReserveController : ControllerBase
 {
     private readonly IBuyerReserveService _service;

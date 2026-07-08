@@ -13,6 +13,7 @@ namespace EntregasApi.Controllers;
 [ApiController]
 [Route("api/me/tandas")]
 [Authorize]
+[SkipTenantResolution]
 public class BuyerTandasController : ControllerBase
 {
     private readonly IBuyerTandasService _service;

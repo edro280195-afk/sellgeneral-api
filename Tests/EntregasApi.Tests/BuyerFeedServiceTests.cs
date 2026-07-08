@@ -67,6 +67,40 @@ public class BuyerFeedServiceTests
     }
 
     [Fact]
+    public async Task GetHome_MarksClaimedStoreAsLive_WhenItHasReadyLiveSession()
+    {
+        using var ctx = TestDbContextFactory.Create();
+
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Sofia", Phone = "8681452290" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        ctx.Clients.Add(new Client
+        {
+            BusinessId = business.Id,
+            AccountId = account.Id,
+            Name = "Sofia",
+            NormalizedName = "sofia",
+        });
+        ctx.LiveSessions.Add(new LiveSession
+        {
+            BusinessId = business.Id,
+            FacebookUrl = "https://facebook.com/live/1",
+            Status = LiveSessionStatus.Ready,
+            ImportedAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync();
+
+        var home = await new BuyerFeedService(ctx).GetHomeAsync(account.Id);
+
+        var store = Assert.Single(home.Stores);
+        Assert.True(store.IsLive);
+        Assert.Equal(1, home.LiveCount);
+    }
+
+    [Fact]
     public async Task GetHome_DoesNotLeakOtherAccountsData()
     {
         using var ctx = TestDbContextFactory.Create();
