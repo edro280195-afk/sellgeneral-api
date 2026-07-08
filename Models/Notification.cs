@@ -17,8 +17,20 @@ public class Notification : ITenantOwned
     /// <summary>Negocio (tenant) dueño de la notificación.</summary>
     public int BusinessId { get; set; }
 
-    /// <summary>Client al que se dirige la notificación.</summary>
-    public int ClientId { get; set; }
+    /// <summary>
+    /// Client al que se dirige la notificación. Null cuando la notificación
+    /// viene de un seguimiento (<see cref="StoreFollower"/>) y la compradora
+    /// no tiene Client en este negocio — en ese caso se usa
+    /// <see cref="AccountId"/> para resolverla en el historial.
+    /// </summary>
+    public int? ClientId { get; set; }
+
+    /// <summary>
+    /// Account global a la que se dirige, cuando no hay Client (seguidora
+    /// sin compra en este negocio). Las notificaciones viejas por pedido
+    /// siguen resolviéndose vía ClientId -&gt; Client.AccountId.
+    /// </summary>
+    public int? AccountId { get; set; }
 
     [Required, MaxLength(200)]
     public string Title { get; set; } = string.Empty;

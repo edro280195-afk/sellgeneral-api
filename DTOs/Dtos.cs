@@ -1421,7 +1421,30 @@ public record BuyerStoreDetailDto(
     BuyerLiveSummaryDto? Live,
     List<BuyerProductDto> Products,
     int ActiveTandasCount,
-    int ActiveRafflesCount);
+    int ActiveRafflesCount,
+    int FollowerCount,
+    bool IsFollowing,
+    bool IsVip);
+
+/// <summary>Estado de "seguir" de la compradora sobre una tienda.</summary>
+public record FollowStateDto(
+    int BusinessId,
+    bool IsFollowing,
+    bool NotifyOnPost,
+    bool NotifyOnLive,
+    bool IsVip);
+
+public record FollowPreferencesRequest(bool NotifyOnPost, bool NotifyOnLive);
+
+/// <summary>Fila de la lista de seguidoras que ve la vendedora (gestión VIP).</summary>
+public record StoreFollowerAdminDto(
+    int AccountId,
+    string DisplayName,
+    DateTime FollowedAt,
+    bool IsVip,
+    DateTime? VipSince);
+
+public record RegisterDeviceRequest(string Token, string Platform);
 
 /// <summary>
 /// Request para que la compradora aparte un producto de una tienda.

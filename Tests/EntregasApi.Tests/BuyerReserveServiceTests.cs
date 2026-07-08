@@ -371,6 +371,8 @@ internal class NoopPushService : IPushNotificationService
         => Task.CompletedTask;
     public Task SendNotificationToAdminsAsync(string title, string message, string? url = null, string? tag = null)
         => Task.CompletedTask;
+    public Task SendNotificationToFollowersAsync(int businessId, string title, string message, string? url = null, string? tag = null, bool vipOnly = false, bool requireNotifyOnPost = false, bool requireNotifyOnLive = false)
+        => Task.CompletedTask;
     public Task NotifyClientDriverEnRouteAsync(int clientId, string? driverName = null) => Task.CompletedTask;
     public Task NotifyClientDriverNearbyAsync(int clientId, int distanceMeters) => Task.CompletedTask;
     public Task NotifyClientDeliveredAsync(int clientId) => Task.CompletedTask;

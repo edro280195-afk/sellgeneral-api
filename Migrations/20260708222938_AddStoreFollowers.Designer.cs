@@ -3,6 +3,7 @@ using System;
 using EntregasApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace EntregasApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260708222938_AddStoreFollowers")]
+    partial class AddStoreFollowers
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -84,7 +87,7 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasFilter("\"Phone\" IS NOT NULL");
 
-                    b.ToTable("Accounts", null, t =>
+                    b.ToTable("Accounts", t =>
                         {
                             t.HasCheckConstraint("CK_Accounts_IdentityMethod", "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL");
                         });
@@ -114,7 +117,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("BusinessId")
                         .IsUnique();
 
-                    b.ToTable("AppSettings", (string)null);
+                    b.ToTable("AppSettings");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Business", b =>
@@ -256,7 +259,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("Slug")
                         .IsUnique();
 
-                    b.ToTable("Businesses", (string)null);
+                    b.ToTable("Businesses");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.BuyerDeviceToken", b =>
@@ -293,7 +296,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("Token")
                         .IsUnique();
 
-                    b.ToTable("BuyerDeviceTokens", (string)null);
+                    b.ToTable("BuyerDeviceTokens");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.CashRegisterSession", b =>
@@ -336,7 +339,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.ToTable("CashRegisterSessions", (string)null);
+                    b.ToTable("CashRegisterSessions");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ChatMessage", b =>
@@ -370,7 +373,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("DeliveryRouteId");
 
-                    b.ToTable("ChatMessages", (string)null);
+                    b.ToTable("ChatMessages");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Client", b =>
@@ -456,7 +459,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("BusinessId", "Name")
                         .IsUnique();
 
-                    b.ToTable("Clients", (string)null);
+                    b.ToTable("Clients");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ClientAlias", b =>
@@ -504,7 +507,7 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_ClientAliases_NormalizedAlias");
 
-                    b.ToTable("ClientAliases", (string)null);
+                    b.ToTable("ClientAliases");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ClientClaimAudit", b =>
@@ -548,7 +551,7 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_ClientClaimAudits_Account_Client");
 
-                    b.ToTable("ClientClaimAudits", (string)null);
+                    b.ToTable("ClientClaimAudits");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.ClientMergeAudit", b =>
@@ -596,7 +599,7 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ClientMergeAudits", (string)null);
+                    b.ToTable("ClientMergeAudits");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Delivery", b =>
@@ -665,7 +668,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("TandaParticipantId");
 
-                    b.ToTable("Deliveries", null, t =>
+                    b.ToTable("Deliveries", t =>
                         {
                             t.HasCheckConstraint("CK_Deliveries_OrderXorTanda", "(\"OrderId\" IS NOT NULL AND \"TandaParticipantId\" IS NULL) OR (\"OrderId\" IS NULL AND \"TandaParticipantId\" IS NOT NULL)");
                         });
@@ -704,7 +707,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("DeliveryId");
 
-                    b.ToTable("DeliveryEvidences", (string)null);
+                    b.ToTable("DeliveryEvidences");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.DeliveryRoute", b =>
@@ -761,7 +764,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("DriverToken")
                         .IsUnique();
 
-                    b.ToTable("DeliveryRoutes", (string)null);
+                    b.ToTable("DeliveryRoutes");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.DriverExpense", b =>
@@ -811,7 +814,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("DeliveryRouteId");
 
-                    b.ToTable("DriverExpenses", (string)null);
+                    b.ToTable("DriverExpenses");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.FcmToken", b =>
@@ -917,7 +920,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("SupplierId");
 
-                    b.ToTable("Investments", (string)null);
+                    b.ToTable("Investments");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LinkEvent", b =>
@@ -973,7 +976,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("OrderAccessToken")
                         .HasDatabaseName("IX_LinkEvents_OrderAccessToken");
 
-                    b.ToTable("LinkEvents", (string)null);
+                    b.ToTable("LinkEvents");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LiveCandidate", b =>
@@ -1037,7 +1040,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("ResolvedClientId");
 
-                    b.ToTable("LiveCandidates", (string)null);
+                    b.ToTable("LiveCandidates");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LiveCommentOrder", b =>
@@ -1078,7 +1081,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("LiveSessionId");
 
-                    b.ToTable("LiveCommentOrders", (string)null);
+                    b.ToTable("LiveCommentOrders");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LiveProduct", b =>
@@ -1118,7 +1121,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("LiveSessionId");
 
-                    b.ToTable("LiveProducts", (string)null);
+                    b.ToTable("LiveProducts");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LiveSession", b =>
@@ -1174,7 +1177,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.ToTable("LiveSessions", (string)null);
+                    b.ToTable("LiveSessions");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LiveSpokenOrder", b =>
@@ -1212,7 +1215,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("LiveSessionId");
 
-                    b.ToTable("LiveSpokenOrders", (string)null);
+                    b.ToTable("LiveSpokenOrders");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LoyaltyReward", b =>
@@ -1260,7 +1263,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.ToTable("LoyaltyRewards", (string)null);
+                    b.ToTable("LoyaltyRewards");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.LoyaltyTransaction", b =>
@@ -1296,7 +1299,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("ClientId");
 
-                    b.ToTable("LoyaltyTransactions", (string)null);
+                    b.ToTable("LoyaltyTransactions");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Membership", b =>
@@ -1328,7 +1331,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("AccountId", "BusinessId")
                         .IsUnique();
 
-                    b.ToTable("Memberships", (string)null);
+                    b.ToTable("Memberships");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Notification", b =>
@@ -1380,7 +1383,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.ToTable("Notifications", (string)null);
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Order", b =>
@@ -1489,7 +1492,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("SalesPeriodId");
 
-                    b.ToTable("Orders", (string)null);
+                    b.ToTable("Orders");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.OrderItem", b =>
@@ -1533,7 +1536,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("OrderItems", (string)null);
+                    b.ToTable("OrderItems");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.OrderPackage", b =>
@@ -1582,7 +1585,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("QrCodeValue")
                         .IsUnique();
 
-                    b.ToTable("OrderPackages", (string)null);
+                    b.ToTable("OrderPackages");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.OrderPayment", b =>
@@ -1634,7 +1637,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("OrderPayments", (string)null);
+                    b.ToTable("OrderPayments");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.OrderRating", b =>
@@ -1673,7 +1676,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("OrderRatings", (string)null);
+                    b.ToTable("OrderRatings");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.PayoutAccount", b =>
@@ -1791,7 +1794,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("BusinessId", "SKU")
                         .IsUnique();
 
-                    b.ToTable("Products", (string)null);
+                    b.ToTable("Products");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.PushSubscriptionModel", b =>
@@ -2073,7 +2076,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("WinnerId");
 
-                    b.ToTable("raffles", (string)null);
+                    b.ToTable("raffles");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.RaffleDraw", b =>
@@ -2130,7 +2133,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("WinnerId");
 
-                    b.ToTable("raffle_draws", (string)null);
+                    b.ToTable("raffle_draws");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.RaffleEntry", b =>
@@ -2172,7 +2175,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("RaffleId", "ClientId");
 
-                    b.ToTable("raffle_entries", (string)null);
+                    b.ToTable("raffle_entries");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.RaffleParticipant", b =>
@@ -2246,7 +2249,7 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_RaffleParticipant_Raffle_Client");
 
-                    b.ToTable("raffle_participants", (string)null);
+                    b.ToTable("raffle_participants");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.RefreshToken", b =>
@@ -2287,7 +2290,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("RefreshTokens", (string)null);
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.SalesPeriod", b =>
@@ -2326,7 +2329,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("IsActive");
 
-                    b.ToTable("SalesPeriods", (string)null);
+                    b.ToTable("SalesPeriods");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.StoreFollower", b =>
@@ -2372,7 +2375,7 @@ namespace EntregasApi.Migrations
                     b.HasIndex("BusinessId", "AccountId")
                         .IsUnique();
 
-                    b.ToTable("StoreFollowers", (string)null);
+                    b.ToTable("StoreFollowers");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Supplier", b =>
@@ -2421,7 +2424,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Suppliers", (string)null);
+                    b.ToTable("Suppliers");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.Tanda", b =>
@@ -2485,7 +2488,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("tandas", (string)null);
+                    b.ToTable("tandas");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.TandaParticipant", b =>
@@ -2546,7 +2549,7 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_TandaParticipant_Tanda_Turn");
 
-                    b.ToTable("tanda_participants", (string)null);
+                    b.ToTable("tanda_participants");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.TandaPayment", b =>
@@ -2596,7 +2599,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("ParticipantId");
 
-                    b.ToTable("payments", (string)null);
+                    b.ToTable("payments");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.TandaProduct", b =>
@@ -2638,7 +2641,7 @@ namespace EntregasApi.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.ToTable("products", (string)null);
+                    b.ToTable("products");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.AppSettings", b =>

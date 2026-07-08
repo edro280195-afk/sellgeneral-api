@@ -84,6 +84,10 @@ public class AppDbContext : DbContext
     public DbSet<LiveCommentOrder> LiveCommentOrders => Set<LiveCommentOrder>();
     public DbSet<LiveCandidate> LiveCandidates => Set<LiveCandidate>();
 
+    // Comunidad de tienda (seguir, push nativo)
+    public DbSet<StoreFollower> StoreFollowers => Set<StoreFollower>();
+    public DbSet<BuyerDeviceToken> BuyerDeviceTokens => Set<BuyerDeviceToken>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -429,6 +433,20 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Role).HasDefaultValue("driver");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+        });
+
+        modelBuilder.Entity<StoreFollower>(entity =>
+        {
+            entity.HasIndex(f => new { f.BusinessId, f.AccountId }).IsUnique();
+            entity.HasIndex(f => f.AccountId);
+        });
+
+        // NO es ITenantOwned (una compradora sigue N tiendas con el mismo
+        // dispositivo) — se configura a mano, igual que RefreshToken.
+        modelBuilder.Entity<BuyerDeviceToken>(entity =>
+        {
+            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasIndex(t => t.AccountId);
         });
 
         modelBuilder.Entity<PushSubscriptionModel>(entity =>

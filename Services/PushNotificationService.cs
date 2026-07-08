@@ -12,6 +12,24 @@ public interface IPushNotificationService
     Task SendNotificationToDriverAsync(string routeToken, string title, string message, string? url = null, string? tag = null);
     Task SendNotificationToAdminsAsync(string title, string message, string? url = null, string? tag = null);
 
+    /// <summary>
+    /// Fan-out a las seguidoras (<see cref="Models.StoreFollower"/>) de una
+    /// tienda: persiste una <see cref="Models.Notification"/> por
+    /// destinataria y empuja push real vía FCM (<see cref="IFcmService"/>,
+    /// el mismo camino que ya usan los choferes) contra
+    /// <see cref="Models.BuyerDeviceToken"/> — NO vía Web Push/PushSubscriptions
+    /// (ese camino no llega a la app nativa).
+    /// </summary>
+    Task SendNotificationToFollowersAsync(
+        int businessId,
+        string title,
+        string message,
+        string? url = null,
+        string? tag = null,
+        bool vipOnly = false,
+        bool requireNotifyOnPost = false,
+        bool requireNotifyOnLive = false);
+
     // Helpers específicos — WebPush (clientes web/PWA)
     Task NotifyClientDriverEnRouteAsync(int clientId, string? driverName = null);
     Task NotifyClientDriverNearbyAsync(int clientId, int distanceMeters);
@@ -98,6 +116,91 @@ public class PushNotificationService : IPushNotificationService
             .ToListAsync();
 
         await SendToSubscriptionsAsync(subscriptions, title, message, url, tag);
+    }
+
+    public async Task SendNotificationToFollowersAsync(
+        int businessId,
+        string title,
+        string message,
+        string? url = null,
+        string? tag = null,
+        bool vipOnly = false,
+        bool requireNotifyOnPost = false,
+        bool requireNotifyOnLive = false)
+    {
+        var followersQuery = _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
+            .Where(f => f.BusinessId == businessId && f.UnfollowedAt == null);
+
+        if (vipOnly)
+        {
+            followersQuery = followersQuery.Where(f => f.IsVip);
+        }
+        if (requireNotifyOnPost)
+        {
+            followersQuery = followersQuery.Where(f => f.NotifyOnPost);
+        }
+        if (requireNotifyOnLive)
+        {
+            followersQuery = followersQuery.Where(f => f.NotifyOnLive);
+        }
+
+        var accountIds = await followersQuery.Select(f => f.AccountId).Distinct().ToListAsync();
+        if (accountIds.Count == 0) return;
+
+        // Persistir una Notification por destinataria (mismo patrón que
+        // SendNotificationToClientAsync). Cuando la seguidora ya tiene un
+        // Client en este negocio se guarda también el ClientId (por si algo
+        // más lo necesita), pero el historial se resuelve por AccountId.
+        try
+        {
+            var clientIdByAccount = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
+                .Where(c => c.BusinessId == businessId && c.AccountId != null
+                            && accountIds.Contains(c.AccountId!.Value))
+                .Select(c => new { c.AccountId, c.Id })
+                .ToDictionaryAsync(c => c.AccountId!.Value, c => c.Id);
+
+            var now = DateTime.UtcNow;
+            foreach (var accountId in accountIds)
+            {
+                _db.Notifications.Add(new Models.Notification
+                {
+                    Id = Guid.NewGuid(),
+                    BusinessId = businessId,
+                    AccountId = accountId,
+                    ClientId = clientIdByAccount.TryGetValue(accountId, out var clientId) ? clientId : null,
+                    Title = title,
+                    Message = message,
+                    Tag = tag ?? "general",
+                    Url = url,
+                    CreatedAt = now,
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No pude persistir las notificaciones de seguidoras para el negocio {BusinessId}", businessId);
+            // Continuar: el push es lo importante.
+        }
+
+        var tokens = await _db.BuyerDeviceTokens.AsNoTracking()
+            .Where(t => accountIds.Contains(t.AccountId))
+            .Select(t => t.Token)
+            .Distinct()
+            .ToListAsync();
+
+        if (tokens.Count == 0) return;
+
+        await _fcm.SendToTokensAsync(
+            tokens,
+            title,
+            message,
+            data: new Dictionary<string, string>
+            {
+                { "type", tag ?? "general" },
+                { "businessId", businessId.ToString() },
+                { "url", url ?? "" },
+            });
     }
 
     // ═══════════════════════════════════════════

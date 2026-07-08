@@ -131,6 +131,14 @@ public class BuyerStoreService : IBuyerStoreService
         var clientCount = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
             .CountAsync(c => c.BusinessId == businessId, cancellationToken);
 
+        var followerCount = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
+            .CountAsync(f => f.BusinessId == businessId && f.UnfollowedAt == null, cancellationToken);
+
+        var myFollow = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
+            .Where(f => f.BusinessId == businessId && f.AccountId == accountId && f.UnfollowedAt == null)
+            .Select(f => new { f.IsVip })
+            .FirstOrDefaultAsync(cancellationToken);
+
         // Verificada = tiene logo y color de acento configurados.
         var isVerified = !string.IsNullOrWhiteSpace(business.LogoUrl)
                          && !string.IsNullOrWhiteSpace(business.BrandAccentColor);
@@ -169,6 +177,9 @@ public class BuyerStoreService : IBuyerStoreService
             Live: liveDto,
             Products: products,
             ActiveTandasCount: activeTandasCount,
-            ActiveRafflesCount: activeRafflesCount);
+            ActiveRafflesCount: activeRafflesCount,
+            FollowerCount: followerCount,
+            IsFollowing: myFollow is not null,
+            IsVip: myFollow?.IsVip ?? false);
     }
 }

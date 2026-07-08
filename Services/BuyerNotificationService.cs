@@ -70,8 +70,9 @@ public class BuyerNotificationService : IBuyerNotificationService
         CancellationToken cancellationToken = default)
     {
         var rows = await _db.Notifications.AsNoTracking().IgnoreQueryFilters()
-            .Where(n => _db.Clients.IgnoreQueryFilters()
-                .Any(c => c.AccountId == accountId && c.Id == n.ClientId))
+            .Where(n => n.AccountId == accountId
+                        || _db.Clients.IgnoreQueryFilters()
+                            .Any(c => c.AccountId == accountId && c.Id == n.ClientId))
             .OrderByDescending(n => n.CreatedAt)
             .Select(n => new
             {
@@ -134,10 +135,12 @@ public class BuyerNotificationService : IBuyerNotificationService
             throw new NotificationNotFoundException("Esta notificación no existe.");
         }
 
-        // Validar que pertenece a la Account (vía Client.AccountId).
-        var belongs = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
-            .AnyAsync(c => c.Id == notification.ClientId && c.AccountId == accountId,
-                cancellationToken);
+        // Validar que pertenece a la Account (directo, o vía Client.AccountId).
+        var belongs = notification.AccountId == accountId
+            || (notification.ClientId is not null
+                && await _db.Clients.AsNoTracking().IgnoreQueryFilters()
+                    .AnyAsync(c => c.Id == notification.ClientId && c.AccountId == accountId,
+                        cancellationToken));
 
         if (!belongs)
         {
@@ -158,10 +161,11 @@ public class BuyerNotificationService : IBuyerNotificationService
         // Subquery: IDs de Client de la Account.
         var myClientIds = _db.Clients.IgnoreQueryFilters()
             .Where(c => c.AccountId == accountId)
-            .Select(c => c.Id);
+            .Select(c => (int?)c.Id);
 
         var unread = await _db.Notifications.IgnoreQueryFilters()
-            .Where(n => n.ReadAt == null && myClientIds.Contains(n.ClientId))
+            .Where(n => n.ReadAt == null
+                        && (n.AccountId == accountId || myClientIds.Contains(n.ClientId)))
             .ToListAsync(cancellationToken);
 
         var now = DateTime.UtcNow;
@@ -182,10 +186,11 @@ public class BuyerNotificationService : IBuyerNotificationService
     {
         var myClientIds = _db.Clients.IgnoreQueryFilters()
             .Where(c => c.AccountId == accountId)
-            .Select(c => c.Id);
+            .Select(c => (int?)c.Id);
 
         return await _db.Notifications.IgnoreQueryFilters()
-            .CountAsync(n => n.ReadAt == null && myClientIds.Contains(n.ClientId),
+            .CountAsync(n => n.ReadAt == null
+                              && (n.AccountId == accountId || myClientIds.Contains(n.ClientId)),
                 cancellationToken);
     }
 

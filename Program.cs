@@ -239,6 +239,8 @@ builder.Services.AddScoped<IBuyerReserveService, BuyerReserveService>();
 builder.Services.AddScoped<IBuyerPaymentService, BuyerPaymentService>();
 builder.Services.AddScoped<IBuyerAddressService, BuyerAddressService>();
 builder.Services.AddScoped<IBuyerNotificationService, BuyerNotificationService>();
+builder.Services.AddScoped<IBuyerFollowService, BuyerFollowService>();
+builder.Services.AddScoped<IBuyerDeviceService, BuyerDeviceService>();
 builder.Services.AddScoped<ILiveCaptureService, LiveCaptureService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 
