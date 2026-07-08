@@ -68,6 +68,11 @@ public class ShareLandingController : ControllerBase
             businessLogo = biz?.LogoUrl;
         }
 
+        // Registramos la impresión server-side (jamás se pierde aunque el JS
+        // del muro no cargue). El click tracking (open_app / store_*) lo hace
+        // el JS del muro con un POST a /api/link-events.
+        await RecordImpressionAsync(accessToken, order?.BusinessId);
+
         var html = BuildLandingHtml(accessToken, order, businessName, businessLogo);
         return Content(html, "text/html; charset=utf-8");
     }
@@ -162,6 +167,48 @@ public class ShareLandingController : ControllerBase
         .Include(o => o.Items)
         .FirstOrDefaultAsync(o => o.AccessToken == token);
 
+    /// <summary>
+    /// Registra una impresión del muro /o/{token}. Se ejecuta server-side para
+    /// que no dependa de JS (in-app webviews con scripts bloqueados). Si el
+    /// token no corresponde a ningún pedido, lo deja en el tenant default.
+    /// </summary>
+    private async Task RecordImpressionAsync(string accessToken, int? businessId)
+    {
+        try
+        {
+            var ua = Request.Headers["User-Agent"].ToString();
+            _db.LinkEvents.Add(new LinkEvent
+            {
+                BusinessId = businessId ?? 1,
+                OrderAccessToken = accessToken,
+                Event = "impression",
+                UserAgent = string.IsNullOrWhiteSpace(ua) ? null : Truncate(ua, 512),
+                IpAddress = ExtractForwardedIp(),
+            });
+            await _db.SaveChangesAsync();
+        }
+        catch
+        {
+            // La analítica nunca debe romper la landing: si falla la inserción
+            // (p. ej. constraint raro), seguimos sirviendo el HTML.
+        }
+    }
+
+    private string? ExtractForwardedIp()
+    {
+        var fwd = Request.Headers["X-Forwarded-For"].ToString();
+        if (!string.IsNullOrWhiteSpace(fwd))
+        {
+            var ip = fwd.Split(',')[0].Trim();
+            return Truncate(ip, 64);
+        }
+        var remote = HttpContext.Connection.RemoteIpAddress?.ToString();
+        return string.IsNullOrWhiteSpace(remote) ? null : Truncate(remote, 64);
+    }
+
+    private static string? Truncate(string? value, int max) =>
+        string.IsNullOrEmpty(value) ? value : (value.Length <= max ? value : value[..max]);
+
     private string BuildLandingHtml(
         string token, Order? order, string? businessName, string? businessLogo)
     {
@@ -227,10 +274,19 @@ public class ShareLandingController : ControllerBase
 
         var androidBtn = androidHref == null
             ? "<div class=\"pill soon\">Android · muy pronto</div>"
-            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(androidHref)}\">Descargar para Android</a>";
+            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(androidHref)}\" data-track=\"store_android\">Descargar para Android</a>";
         var iosBtn = string.IsNullOrWhiteSpace(iosStore)
             ? "<div class=\"pill soon\">iPhone · muy pronto</div>"
-            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(iosStore)}\">Descargar para iPhone</a>";
+            : $"<a class=\"pill secondary\" href=\"{HtmlEncode(iosStore)}\" data-track=\"store_ios\">Descargar para iPhone</a>";
+
+        // Smart App Banner iOS: si la app está publicada y tenemos el App Store
+        // ID (config App:AppleStoreId), iOS muestra el banner nativo "Abrir en
+        // la app" encima de la página. app-argument lleva el deep link para que
+        // la app abra directo en el pedido.
+        var appleStoreId = _config["App:AppleStoreId"];
+        var smartAppBanner = string.IsNullOrWhiteSpace(appleStoreId)
+            ? string.Empty
+            : $"<meta name=\"apple-itunes-app\" content=\"app-id={HtmlEncode(appleStoreId)}, app-argument={HtmlEncode(scheme)}\"/>";
 
         return $$"""
         <!DOCTYPE html>
@@ -239,6 +295,7 @@ public class ShareLandingController : ControllerBase
           <meta charset="utf-8"/>
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
           <meta name="robots" content="noindex"/>
+          {{smartAppBanner}}
           <title>Neni's · Tu pedido</title>
           <style>
             :root { --pink:#FF0072; --pink2:#FF3D8B; --cream:#FFF4F7; --ink:#2A1622; --muted:#8A7580; }
@@ -277,7 +334,7 @@ public class ShareLandingController : ControllerBase
             {{teaser}}
             <p class="headline">Todo tu pedido, en la app</p>
             <p class="sub">Rastreo en vivo, pagos, puntos y avisos — de {{store}} y de todas tus tiendas.</p>
-            <a class="pill" id="open-app" href="{{HtmlEncode(scheme)}}" data-android="{{HtmlEncode(intentUrl)}}">Abrir en la app</a>
+            <a class="pill" id="open-app" href="{{HtmlEncode(scheme)}}" data-android="{{HtmlEncode(intentUrl)}}" data-track="open_app">Abrir en la app</a>
             <p class="hint">¿Aún no la tienes? Descárgala:</p>
             {{androidBtn}}
             {{iosBtn}}
@@ -292,6 +349,33 @@ public class ShareLandingController : ControllerBase
               if (android && /android/i.test(navigator.userAgent)) {
                 el.setAttribute('href', android);
               }
+            })();
+
+            // Click tracking de analítica auto-alojada. Fire-and-forget: si
+            // falla la red o el navegador bloquea el fetch, no rompemos la
+            // navegación. La impresión ya quedó registrada server-side.
+            (function () {
+              var token = "{{HtmlEncode(token)}}";
+              function track(event) {
+                try {
+                  var body = JSON.stringify({
+                    AccessToken: token,
+                    Event: event,
+                    UserAgent: navigator.userAgent
+                  });
+                  fetch('/api/link-events', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: body,
+                    keepalive: true
+                  });
+                } catch (_) { /* no-op */ }
+              }
+              document.querySelectorAll('[data-track]').forEach(function (a) {
+                a.addEventListener('click', function () {
+                  track(a.getAttribute('data-track'));
+                });
+              });
             })();
           </script>
         </body>

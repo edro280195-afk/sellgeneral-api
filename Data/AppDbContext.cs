@@ -63,6 +63,9 @@ public class AppDbContext : DbContext
     public DbSet<FcmToken> FcmTokens => Set<FcmToken>();
     public DbSet<OrderRating> OrderRatings => Set<OrderRating>();
 
+    // Analítica auto-alojada de enlaces de pedido (/o/{token}).
+    public DbSet<LinkEvent> LinkEvents => Set<LinkEvent>();
+
     // Sorteos
     public DbSet<Raffle> Raffles => Set<Raffle>();
     public DbSet<RaffleParticipant> RaffleParticipants => Set<RaffleParticipant>();
@@ -523,6 +526,22 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(d => d.WinnerId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Analítica de enlaces de pedido (auto-alojada)
+        modelBuilder.Entity<LinkEvent>(entity =>
+        {
+            entity.HasIndex(e => e.OrderAccessToken)
+                  .HasDatabaseName("IX_LinkEvents_OrderAccessToken");
+
+            entity.HasIndex(e => e.Event)
+                  .HasDatabaseName("IX_LinkEvents_Event");
+
+            entity.HasIndex(e => e.CreatedAt)
+                  .HasDatabaseName("IX_LinkEvents_CreatedAt");
+
+            entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("NOW()");
         });
 
         ApplyTenantOwnership(modelBuilder);
