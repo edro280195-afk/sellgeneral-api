@@ -14,7 +14,12 @@ public record LoginResponse(
     List<AuthMembershipDto> Memberships,
     // Refresh token opaco para re-autenticar en silencio al expirar el JWT.
     string? RefreshToken = null);
-public record RegisterRequest(string Name, string Email, string Password);
+public record RegisterRequest(
+    string Name,
+    string Email,
+    string Password,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null);
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
 
@@ -29,7 +34,9 @@ public record VerifyPhoneLoginRequest(
     string? City = null,
     // Nombre opcional para el alta passwordless pre-llenada desde el pedido.
     string? FirstName = null,
-    string? LastName = null);
+    string? LastName = null,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null);
 
 // ── Registro/acceso de la compradora por teléfono + contraseña (confirmación WhatsApp) ──
 
@@ -42,7 +49,12 @@ public record PhoneRegisterRequest(
     string LastName,
     string Phone,
     string Email,
-    string Password);
+    string Password,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null,
+    string AccountType = "client",
+    string? BusinessName = null,
+    string? City = null);
 
 /// <summary>Acceso de la compradora ya registrada: teléfono + contraseña.</summary>
 public record PhonePasswordLoginRequest(string Phone, string Password);
@@ -81,7 +93,9 @@ public record FacebookCompleteProfileRequest(
     string TokenType = "classic",
     string? BusinessName = null,
     string? City = null,
-    string? ExistingPassword = null);
+    string? ExistingPassword = null,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null);
 
 public record FacebookContinuationResponse(
     string Error,

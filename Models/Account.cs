@@ -47,6 +47,13 @@ public class Account
     /// <summary>Hash BCrypt. Solo para cuentas legacy (admin/conductor migradas desde User).</summary>
     public string? PasswordHash { get; set; }
 
+    /// <summary>Momento UTC en que aceptó términos y aviso de privacidad.</summary>
+    public DateTime? LegalAcceptedAtUtc { get; set; }
+
+    /// <summary>Versión legal aceptada, normalmente la fecha publicada en la landing.</summary>
+    [MaxLength(32)]
+    public string? LegalVersion { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navegación

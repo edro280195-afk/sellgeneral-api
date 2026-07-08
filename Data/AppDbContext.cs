@@ -109,6 +109,9 @@ public class AppDbContext : DbContext
             entity.Property(a => a.CreatedAt)
                   .HasDefaultValueSql("NOW()");
 
+            entity.Property(a => a.LegalVersion)
+                  .HasMaxLength(32);
+
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_Accounts_IdentityMethod",
                 "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL"));

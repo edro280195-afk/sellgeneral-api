@@ -1,4 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -22,6 +22,7 @@ namespace EntregasApi.Tests;
 
 public class AuthControllerFacebookTests
 {
+    private const string LegalVersion = "2026-07-08";
     private const string FacebookAppId = "test-facebook-app";
     private const string FacebookUserId = "fb-user-123";
     private const string LimitedKeyId = "facebook-limited-test-key";
@@ -90,9 +91,33 @@ public class AuthControllerFacebookTests
         var account = await db.Accounts.SingleAsync();
         Assert.Equal(FacebookUserId, account.FacebookUserId);
         Assert.Equal("8681452290", account.Phone);
+        Assert.Equal(LegalVersion, account.LegalVersion);
+        Assert.NotNull(account.LegalAcceptedAtUtc);
         Assert.Null(account.PhoneVerifiedAt);
         Assert.Empty(await db.Businesses.ToListAsync());
         Assert.Empty(await db.Memberships.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CompleteFacebookProfile_NewSellerWithoutLegal_BadRequestAndCreatesNothing()
+    {
+        using var db = TestDbContextFactory.Create();
+        var controller = Build(db);
+
+        var result = await controller.CompleteFacebookProfile(
+            new FacebookCompleteProfileRequest(
+                AccessToken: "valid-token",
+                AccountType: "seller",
+                FirstName: "Ana",
+                LastName: "López",
+                Email: "ana@correo.com",
+                Phone: "8681452290",
+                BusinessName: "Luna Bonita",
+                City: "Matamoros"));
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Empty(await db.Accounts.ToListAsync());
+        Assert.Empty(await db.Businesses.ToListAsync());
     }
 
     [Fact]
@@ -103,7 +128,7 @@ public class AuthControllerFacebookTests
         await controller.CompleteFacebookProfile(SellerCompletion());
 
         var result = await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest(
+            AcceptedVerify(
                 "8681452290",
                 "000000",
                 "seller",
@@ -130,7 +155,7 @@ public class AuthControllerFacebookTests
         using var db = TestDbContextFactory.Create();
         var controller = Build(db);
         await controller.CompleteFacebookProfile(SellerCompletion());
-        var request = new VerifyPhoneLoginRequest(
+        var request = AcceptedVerify(
             "8681452290",
             "000000",
             "seller",
@@ -279,7 +304,7 @@ public class AuthControllerFacebookTests
         var controller = Build(db);
         await controller.CompleteFacebookProfile(SellerCompletion());
 
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             FirstName: "Ana",
             LastName: "López",
             Phone: "8681452290",
@@ -291,11 +316,55 @@ public class AuthControllerFacebookTests
         Assert.Null(account.ProfilePhotoUrl);
 
         await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
         var facebookResult = await controller.FacebookLogin(
             new FacebookLoginRequest("valid-token", "client"));
 
         Assert.IsType<ConflictObjectResult>(facebookResult.Result);
+    }
+
+    private static VerifyPhoneLoginRequest AcceptedVerify(
+        string Phone,
+        string Code,
+        string? AccountType = null,
+        string? BusinessName = null,
+        string? City = null,
+        string? FirstName = null,
+        string? LastName = null)
+    {
+        return new VerifyPhoneLoginRequest(
+            Phone,
+            Code,
+            AccountType,
+            BusinessName,
+            City,
+            FirstName,
+            LastName,
+            AcceptedLegal: true,
+            LegalVersion: LegalVersion);
+    }
+
+    private static PhoneRegisterRequest AcceptedPhoneRegister(
+        string FirstName,
+        string LastName,
+        string Phone,
+        string Email,
+        string Password,
+        string AccountType = "client",
+        string? BusinessName = null,
+        string? City = null)
+    {
+        return new PhoneRegisterRequest(
+            FirstName,
+            LastName,
+            Phone,
+            Email,
+            Password,
+            AcceptedLegal: true,
+            LegalVersion: LegalVersion,
+            AccountType: AccountType,
+            BusinessName: BusinessName,
+            City: City);
     }
 
     private static FacebookCompleteProfileRequest SellerCompletion(
@@ -313,7 +382,9 @@ public class AuthControllerFacebookTests
             TokenType: tokenType,
             BusinessName: "Luna Bonita",
             City: "Matamoros",
-            ExistingPassword: existingPassword);
+            ExistingPassword: existingPassword,
+            AcceptedLegal: true,
+            LegalVersion: LegalVersion);
     }
 
     private static string CreateLimitedToken(string audience)

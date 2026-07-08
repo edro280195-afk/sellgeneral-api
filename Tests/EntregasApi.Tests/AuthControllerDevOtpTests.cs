@@ -1,4 +1,4 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using EntregasApi.Controllers;
 using EntregasApi.Data;
 using EntregasApi.DTOs;
@@ -16,6 +16,8 @@ namespace EntregasApi.Tests;
 
 public class AuthControllerDevOtpTests
 {
+    private const string LegalVersion = "2026-07-08";
+
     private static AuthController Build(
         AppDbContext ctx,
         string env = "Development",
@@ -48,7 +50,7 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        var result = await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("868-145-2290", "000000"));
+        var result = await controller.VerifyPhoneOtp(AcceptedVerify("868-145-2290", "000000"));
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var resp = Assert.IsType<LoginResponse>(ok.Value);
@@ -66,8 +68,8 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("8681452290", "000000"));
-        await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("8681452290", "000000"));
+        await controller.VerifyPhoneOtp(AcceptedVerify("8681452290", "000000"));
+        await controller.VerifyPhoneOtp(AcceptedVerify("8681452290", "000000"));
 
         Assert.Equal(1, await ctx.Accounts.CountAsync());
     }
@@ -78,7 +80,7 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        var result = await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("8681452290", "111111"));
+        var result = await controller.VerifyPhoneOtp(AcceptedVerify("8681452290", "111111"));
 
         Assert.IsType<UnauthorizedObjectResult>(result.Result);
         Assert.Equal(0, await ctx.Accounts.CountAsync());
@@ -91,10 +93,23 @@ public class AuthControllerDevOtpTests
         var controller = Build(ctx, configuredOtpCode: "not-a-six-digit-code");
 
         var result = await controller.VerifyPhoneOtp(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
 
         Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal(1, await ctx.Accounts.CountAsync());
+    }
+
+    [Fact]
+    public async Task VerifyPhoneOtp_NewPhoneWithoutLegal_BadRequestAndCreatesNothing()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var result = await controller.VerifyPhoneOtp(
+            new VerifyPhoneLoginRequest("8681452290", "000000"));
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal(0, await ctx.Accounts.CountAsync());
     }
 
     [Fact]
@@ -103,7 +118,7 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx, env: "Production");
 
-        var result = await controller.VerifyPhoneOtp(new VerifyPhoneLoginRequest("8681452290", "000000"));
+        var result = await controller.VerifyPhoneOtp(AcceptedVerify("8681452290", "000000"));
 
         var obj = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, obj.StatusCode);
@@ -119,7 +134,7 @@ public class AuthControllerDevOtpTests
         var controller = Build(ctx, env: "Production", phoneVerification: provider);
 
         var result = await controller.VerifyPhoneOtp(
-            new VerifyPhoneLoginRequest("+52 868 145 2290", "123456"));
+            AcceptedVerify("+52 868 145 2290", "123456"));
 
         Assert.IsType<OkObjectResult>(result.Result);
         var account = await ctx.Accounts.SingleAsync();
@@ -134,12 +149,12 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        var register = await controller.RegisterPhone(new PhoneRegisterRequest(
+        var register = await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "868-145-2290", "ana@correo.com", "secret123"));
         Assert.IsType<AcceptedResult>(register);
 
         var confirm = await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
         var ok = Assert.IsType<OkObjectResult>(confirm.Result);
         var resp = Assert.IsType<LoginResponse>(ok.Value);
         Assert.Equal("Ana López", resp.Name);
@@ -151,14 +166,64 @@ public class AuthControllerDevOtpTests
     }
 
     [Fact]
+    public async Task RegisterPhone_WithoutLegal_BadRequestAndCreatesNothing()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var result = await controller.RegisterPhone(new PhoneRegisterRequest(
+            "Ana", "López", "868-145-2290", "ana@correo.com", "secret123"));
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(0, await ctx.Accounts.CountAsync());
+    }
+
+    [Fact]
+    public async Task RegisterPhone_SellerThenConfirm_CreatesOwnerBusiness()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+
+        var register = await controller.RegisterPhone(AcceptedPhoneRegister(
+            "Ana",
+            "López",
+            "868-145-2290",
+            "ana@correo.com",
+            "secret123",
+            AccountType: "seller",
+            BusinessName: "Luna Bonita",
+            City: "Matamoros"));
+        Assert.IsType<AcceptedResult>(register);
+
+        var confirm = await controller.ConfirmPhone(
+            AcceptedVerify(
+                "8681452290",
+                "000000",
+                "seller",
+                "Luna Bonita",
+                "Matamoros"));
+
+        var ok = Assert.IsType<OkObjectResult>(confirm.Result);
+        var session = Assert.IsType<LoginResponse>(ok.Value);
+        var membership = Assert.Single(session.Memberships);
+        Assert.Equal("Owner", membership.Role);
+        Assert.Equal("Luna Bonita", membership.BusinessName);
+
+        var account = await ctx.Accounts.SingleAsync();
+        Assert.Equal(LegalVersion, account.LegalVersion);
+        Assert.NotNull(account.LegalAcceptedAtUtc);
+        Assert.Single(await ctx.Businesses.ToListAsync());
+    }
+
+    [Fact]
     public async Task LoginPhone_AfterConfirm_ReturnsToken()
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
-        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+        await controller.ConfirmPhone(AcceptedVerify("8681452290", "000000"));
 
         var login = await controller.LoginPhone(
             new PhonePasswordLoginRequest("8681452290", "secret123"));
@@ -173,9 +238,9 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
-        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+        await controller.ConfirmPhone(AcceptedVerify("8681452290", "000000"));
 
         var login = await controller.LoginPhone(
             new PhonePasswordLoginRequest("8681452290", "otraClave"));
@@ -189,7 +254,7 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
 
         var login = await controller.LoginPhone(
@@ -205,11 +270,11 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
-        await controller.ConfirmPhone(new VerifyPhoneLoginRequest("8681452290", "000000"));
+        await controller.ConfirmPhone(AcceptedVerify("8681452290", "000000"));
 
-        var again = await controller.RegisterPhone(new PhoneRegisterRequest(
+        var again = await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
 
         Assert.IsType<ConflictObjectResult>(again);
@@ -221,7 +286,7 @@ public class AuthControllerDevOtpTests
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
 
-        var result = await controller.RegisterPhone(new PhoneRegisterRequest(
+        var result = await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana",
             "López",
             "8681452290",
@@ -252,10 +317,10 @@ public class AuthControllerDevOtpTests
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
         await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
 
         var result = await controller.RequestPasswordReset(
             new PasswordResetRequest("868-145-2290"));
@@ -268,10 +333,10 @@ public class AuthControllerDevOtpTests
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
         await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
 
         var result = await controller.ConfirmPasswordReset(
             new ConfirmPasswordResetRequest(
@@ -298,10 +363,10 @@ public class AuthControllerDevOtpTests
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
         await controller.ConfirmPhone(
-            new VerifyPhoneLoginRequest("8681452290", "000000"));
+            AcceptedVerify("8681452290", "000000"));
 
         var result = await controller.ConfirmPasswordReset(
             new ConfirmPasswordResetRequest(
@@ -321,7 +386,7 @@ public class AuthControllerDevOtpTests
     {
         using var ctx = TestDbContextFactory.Create();
         var controller = Build(ctx);
-        await controller.RegisterPhone(new PhoneRegisterRequest(
+        await controller.RegisterPhone(AcceptedPhoneRegister(
             "Ana", "López", "8681452290", "ana@correo.com", "secret123"));
 
         var result = await controller.ConfirmPasswordReset(
@@ -348,6 +413,50 @@ public class AuthControllerDevOtpTests
 
         var obj = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status501NotImplemented, obj.StatusCode);
+    }
+
+    private static VerifyPhoneLoginRequest AcceptedVerify(
+        string Phone,
+        string Code,
+        string? AccountType = null,
+        string? BusinessName = null,
+        string? City = null,
+        string? FirstName = null,
+        string? LastName = null)
+    {
+        return new VerifyPhoneLoginRequest(
+            Phone,
+            Code,
+            AccountType,
+            BusinessName,
+            City,
+            FirstName,
+            LastName,
+            AcceptedLegal: true,
+            LegalVersion: LegalVersion);
+    }
+
+    private static PhoneRegisterRequest AcceptedPhoneRegister(
+        string FirstName,
+        string LastName,
+        string Phone,
+        string Email,
+        string Password,
+        string AccountType = "client",
+        string? BusinessName = null,
+        string? City = null)
+    {
+        return new PhoneRegisterRequest(
+            FirstName,
+            LastName,
+            Phone,
+            Email,
+            Password,
+            AcceptedLegal: true,
+            LegalVersion: LegalVersion,
+            AccountType: AccountType,
+            BusinessName: BusinessName,
+            City: City);
     }
 
     private sealed class FakeHttpClientFactory : IHttpClientFactory

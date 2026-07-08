@@ -26,6 +26,7 @@ public class AuthController : ControllerBase
     private const string FacebookAccountTypeSeller = "seller";
     private const string FacebookTokenTypeClassic = "classic";
     private const string FacebookTokenTypeLimited = "limited";
+    private const string CurrentLegalVersion = "2026-07-08";
     private const int MaxFacebookTokenLength = 16_384;
     private const double DefaultDepotLat = 27.4861;
     private const double DefaultDepotLng = -99.5069;
@@ -101,6 +102,9 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "La contraseña debe tener entre 8 y 128 caracteres." });
         }
 
+        var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+        if (legalError is not null) return legalError;
+
         var email = NormalizeEmail(req.Email);
         if (await _db.Accounts.AnyAsync(a => a.Email == email))
         {
@@ -113,6 +117,7 @@ public class AuthController : ControllerBase
             Email = email,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password)
         };
+        MarkLegalAccepted(account, req.LegalVersion);
 
         _db.Accounts.Add(account);
         await _db.SaveChangesAsync();
@@ -218,6 +223,24 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Escribe un correo válido." });
         }
 
+        var accountType = NormalizeFacebookAccountType(req.AccountType);
+        if (accountType is null)
+        {
+            return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
+        }
+
+        var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+        if (legalError is not null) return legalError;
+
+        if (accountType == FacebookAccountTypeSeller)
+        {
+            var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
+            if (sellerData.Error is not null)
+            {
+                return BadRequest(new { message = sellerData.Error });
+            }
+        }
+
         var existing = await _db.Accounts
             .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
 
@@ -248,6 +271,7 @@ public class AuthController : ControllerBase
                 Email = email,
                 PasswordHash = passwordHash
             };
+            MarkLegalAccepted(existing, req.LegalVersion);
             _db.Accounts.Add(existing);
         }
         else
@@ -262,6 +286,7 @@ public class AuthController : ControllerBase
             // identidad social pendiente que nunca llegó a verificarse.
             existing.FacebookUserId = null;
             existing.ProfilePhotoUrl = null;
+            MarkLegalAccepted(existing, req.LegalVersion);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -318,6 +343,13 @@ public class AuthController : ControllerBase
 
         if (accountType == FacebookAccountTypeSeller && account.Memberships.Count == 0)
         {
+            if (account.LegalAcceptedAtUtc is null)
+            {
+                var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+                if (legalError is not null) return legalError;
+                MarkLegalAccepted(account, req.LegalVersion);
+            }
+
             var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
             if (sellerData.Error is not null)
             {
@@ -582,6 +614,9 @@ public class AuthController : ControllerBase
 
         if (account is null)
         {
+            var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+            if (legalError is not null) return legalError;
+
             var displayName = ComposeDisplayName(req.FirstName, req.LastName);
             account = new Account
             {
@@ -591,14 +626,43 @@ public class AuthController : ControllerBase
                 Phone = phone,
                 PhoneVerifiedAt = DateTime.UtcNow
             };
+            MarkLegalAccepted(account, req.LegalVersion);
             _db.Accounts.Add(account);
-            await _db.SaveChangesAsync(cancellationToken);
         }
         else if (account.PhoneVerifiedAt is null)
         {
             account.PhoneVerifiedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(cancellationToken);
         }
+
+        var accountType = NormalizeFacebookAccountType(req.AccountType);
+        if (!string.IsNullOrWhiteSpace(req.AccountType) && accountType is null)
+        {
+            return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
+        }
+
+        if (accountType == FacebookAccountTypeSeller && account.Memberships.Count == 0)
+        {
+            if (account.LegalAcceptedAtUtc is null)
+            {
+                var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+                if (legalError is not null) return legalError;
+                MarkLegalAccepted(account, req.LegalVersion);
+            }
+
+            var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
+            if (sellerData.Error is not null)
+            {
+                return BadRequest(new { message = sellerData.Error });
+            }
+
+            await AddSellerBusinessAsync(
+                account,
+                sellerData.Name!,
+                sellerData.City,
+                cancellationToken);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
@@ -762,6 +826,18 @@ public class AuthController : ControllerBase
         }
 
         var account = facebookAccount;
+        var willCreateAccount = account is null && phoneOwner is null && emailOwner is null;
+        var candidateAccount = account ?? phoneOwner ?? emailOwner;
+        var willCreateSellerBusiness =
+            accountType == FacebookAccountTypeSeller &&
+            (candidateAccount is null || candidateAccount.Memberships.Count == 0);
+        if ((willCreateAccount || willCreateSellerBusiness) &&
+            candidateAccount?.LegalAcceptedAtUtc is null)
+        {
+            var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+            if (legalError is not null) return legalError;
+        }
+
         if (account is null)
         {
             account = phoneOwner ?? emailOwner;
@@ -804,8 +880,14 @@ public class AuthController : ControllerBase
                     Email = email,
                     ProfilePhotoUrl = profile.PictureUrl
                 };
+                MarkLegalAccepted(account, req.LegalVersion);
                 _db.Accounts.Add(account);
             }
+        }
+
+        if (req.AcceptedLegal && account.LegalAcceptedAtUtc is null)
+        {
+            MarkLegalAccepted(account, req.LegalVersion);
         }
 
         if ((phoneOwner is not null && phoneOwner.Id != account.Id) ||
@@ -1108,6 +1190,22 @@ public class AuthController : ControllerBase
 
         var normalizedCity = NormalizeOptional(city, 120);
         return (name, normalizedCity, null);
+    }
+
+    private static BadRequestObjectResult? ValidateLegalAcceptance(bool acceptedLegal)
+    {
+        return acceptedLegal
+            ? null
+            : new BadRequestObjectResult(new
+            {
+                message = "Acepta los Términos y el Aviso de privacidad para continuar."
+            });
+    }
+
+    private static void MarkLegalAccepted(Account account, string? legalVersion)
+    {
+        account.LegalAcceptedAtUtc ??= DateTime.UtcNow;
+        account.LegalVersion = NormalizeOptional(legalVersion, 32) ?? CurrentLegalVersion;
     }
 
     private async Task AddSellerBusinessAsync(
