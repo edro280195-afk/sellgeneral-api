@@ -1440,7 +1440,9 @@ public record BuyerStoreDetailDto(
     bool IsFollowing,
     bool IsVip,
     bool IsLiveNow,
-    string? LiveAnnouncementTitle);
+    string? LiveAnnouncementTitle,
+    double? AverageRating,
+    int RatingsCount);
 
 /// <summary>Estado de "seguir" de la compradora sobre una tienda.</summary>
 public record FollowStateDto(

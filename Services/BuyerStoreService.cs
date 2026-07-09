@@ -140,6 +140,15 @@ public class BuyerStoreService : IBuyerStoreService
         var followerCount = await _db.StoreFollowers.AsNoTracking().IgnoreQueryFilters()
             .CountAsync(f => f.BusinessId == businessId && f.UnfollowedAt == null, cancellationToken);
 
+        // Reseñas: promedio + conteo de OrderRating (ya se capturan al momento
+        // de la entrega, flujo V3 — aquí solo se agregan como señal de
+        // confianza para quien está viendo la tienda).
+        var ratingStats = await _db.OrderRatings.AsNoTracking().IgnoreQueryFilters()
+            .Where(r => r.BusinessId == businessId)
+            .GroupBy(r => 1)
+            .Select(g => new { Average = g.Average(r => (double)r.Stars), Count = g.Count() })
+            .FirstOrDefaultAsync(cancellationToken);
+
         // "En vivo ahora": aviso en tiempo real (distinto del pipeline
         // post-hoc de LiveSession de arriba). TTL de 3h, igual que
         // LiveAnnouncementService.
@@ -193,6 +202,8 @@ public class BuyerStoreService : IBuyerStoreService
             IsFollowing: myFollow is not null,
             IsVip: myFollow?.IsVip ?? false,
             IsLiveNow: liveAnnouncement is not null,
-            LiveAnnouncementTitle: liveAnnouncement?.Title);
+            LiveAnnouncementTitle: liveAnnouncement?.Title,
+            AverageRating: ratingStats?.Average,
+            RatingsCount: ratingStats?.Count ?? 0);
     }
 }

@@ -384,6 +384,60 @@ public class BuyerStoreServiceTests
         Assert.True(store.IsVerified);
     }
 
+    [Fact]
+    public async Task GetStore_WithNoRatings_ReturnsNullAverageAndZeroCount()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+        ctx.StoreFollowers.Add(new StoreFollower { BusinessId = business.Id, AccountId = account.Id });
+        await ctx.SaveChangesAsync();
+
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
+
+        Assert.Null(store.AverageRating);
+        Assert.Equal(0, store.RatingsCount);
+    }
+
+    [Fact]
+    public async Task GetStore_WithRatings_ReturnsAverageAndCount()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+        ctx.StoreFollowers.Add(new StoreFollower { BusinessId = business.Id, AccountId = account.Id });
+        var orderA = NewOrder(business.Id, OrderStatus.Delivered, 100m);
+        var orderB = NewOrder(business.Id, OrderStatus.Delivered, 200m);
+        ctx.Orders.AddRange(orderA, orderB);
+        await ctx.SaveChangesAsync();
+        ctx.OrderRatings.AddRange(
+            new OrderRating { BusinessId = business.Id, OrderId = orderA.Id, Stars = 5 },
+            new OrderRating { BusinessId = business.Id, OrderId = orderB.Id, Stars = 3 });
+        await ctx.SaveChangesAsync();
+
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
+
+        Assert.Equal(4.0, store.AverageRating);
+        Assert.Equal(2, store.RatingsCount);
+    }
+
+    private static Order NewOrder(int businessId, OrderStatus status, decimal total) => new()
+    {
+        BusinessId = businessId,
+        Status = status,
+        Total = total,
+        Subtotal = total,
+        AccessToken = $"tok-{Guid.NewGuid():N}",
+        CreatedAt = DateTime.UtcNow,
+        ExpiresAt = DateTime.UtcNow.AddDays(3),
+    };
+
     private static Business NewBusiness(string name, string slug, string color) => new()
     {
         Name = name,

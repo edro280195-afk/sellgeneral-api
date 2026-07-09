@@ -149,7 +149,7 @@ public class ShareLandingController : ControllerBase
                 apps = Array.Empty<string>(),
                 details = new[]
                 {
-                    new { appID = appId, paths = new[] { "/o/*", "/pedido/*" } },
+                    new { appID = appId, paths = new[] { "/o/*", "/pedido/*", "/store/*" } },
                 },
             },
         };
