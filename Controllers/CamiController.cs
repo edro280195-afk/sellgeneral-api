@@ -127,13 +127,12 @@ public class CamiController : ControllerBase
         {
             _logger.LogError(ex, "Error en /cami/client-insight/{ClientId}", clientId);
             // DIAGNÓSTICO TEMPORAL: Devolvemos el error real para identificar la falla
-            return Ok(new CamiChatResponse($"Error Insight Cli: {ex.Message}. SDK/Auth issue?"));
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "No pudimos generar el insight por el momento." });
         }
     }
 
     /// <summary>Route briefing — genera briefing de voz para el repartidor con TTS.</summary>
     [HttpGet("route-briefing/{routeId}")]
-    [AllowAnonymous]
     public async Task<ActionResult<RouteBriefingResponse>> RouteBriefing(int routeId)
     {
         try

@@ -1,0 +1,36 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  secrets-and-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore EntregasApi.csproj
+
+      - name: Check vulnerable packages
+        run: dotnet list EntregasApi.csproj package --vulnerable --include-transitive
+
+      - name: Test
+        run: dotnet test Tests/EntregasApi.Tests/EntregasApi.Tests.csproj --no-restore --verbosity minimal

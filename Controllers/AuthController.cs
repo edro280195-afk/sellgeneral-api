@@ -86,6 +86,7 @@ public class AuthController : ControllerBase
     // ── Acceso de equipo (correo + contraseña, cuentas legacy admin/conductor) ──
 
     [HttpPost("register")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthPassword)]
     public async Task<ActionResult<LoginResponse>> Register(
         RegisterRequest req,
         CancellationToken cancellationToken = default)
@@ -126,6 +127,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthPassword)]
     public async Task<ActionResult<LoginResponse>> Login(
         LoginRequest req,
         CancellationToken cancellationToken = default)
@@ -152,6 +154,7 @@ public class AuthController : ControllerBase
     /// llama al arrancar si el JWT expiró, evitando pedir credenciales de nuevo.
     /// </summary>
     [HttpPost("refresh")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthSession)]
     public async Task<ActionResult<LoginResponse>> Refresh(
         RefreshRequest req,
         CancellationToken cancellationToken = default)
@@ -174,6 +177,7 @@ public class AuthController : ControllerBase
 
     /// <summary>Cierra la sesión revocando el refresh token (best-effort).</summary>
     [HttpPost("logout")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthSession)]
     public async Task<IActionResult> Logout(
         RefreshRequest req,
         CancellationToken cancellationToken = default)
@@ -373,6 +377,7 @@ public class AuthController : ControllerBase
     /// para que la app la mande a la pantalla de confirmación.
     /// </summary>
     [HttpPost("phone/login")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthPassword)]
     public async Task<ActionResult<LoginResponse>> LoginPhone(
         PhonePasswordLoginRequest req,
         CancellationToken cancellationToken = default)

@@ -493,6 +493,9 @@ cami-voz-v2.json
 # Config local con el connection string real de la base de datos (NUNCA SUBIR)
 appsettings.json
 appsettings.Development.json
+connectionStrings.txt
+.env
+.env.*
 
 # Directorio local de Claude Code (worktrees de agentes, settings locales)
 .claude/

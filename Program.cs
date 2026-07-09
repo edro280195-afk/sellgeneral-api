@@ -7,6 +7,7 @@ using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -78,6 +79,12 @@ builder.Services.AddHttpClient("facebook", client =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection("Sms"));
 builder.Services.AddHttpClient<IPhoneVerificationService, TwilioVerifyService>(client =>
 {
@@ -87,33 +94,34 @@ builder.Services.AddHttpClient<IPhoneVerificationService, TwilioVerifyService>(c
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        FixedWindow(context, "global", 600, TimeSpan.FromMinutes(1)));
     options.AddPolicy("otp-send", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        FixedWindow(context, "otp-send", 5, TimeSpan.FromMinutes(1), "phone"));
     options.AddPolicy("otp-check", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 10,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        FixedWindow(context, "otp-check", 10, TimeSpan.FromMinutes(1), "phone"));
     options.AddPolicy("facebook-auth", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+        FixedWindow(context, "facebook-auth", 5, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.AuthPassword, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.AuthPassword, 8, TimeSpan.FromMinutes(5)));
+    options.AddPolicy(SecurityRateLimitPolicies.AuthSession, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.AuthSession, 30, TimeSpan.FromMinutes(5)));
+    options.AddPolicy(SecurityRateLimitPolicies.PublicTokenRead, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.PublicTokenRead, 120, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.PublicTokenWrite, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.PublicTokenWrite, 20, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.DriverTokenRead, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.DriverTokenRead, 120, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.DriverTokenWrite, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.DriverTokenWrite, 45, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.DriverTokenHighFrequency, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.DriverTokenHighFrequency, 180, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.PushSubscribe, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.PushSubscribe, 30, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.LinkEvents, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.LinkEvents, 120, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.Webhook, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.Webhook, 240, TimeSpan.FromMinutes(1)));
 });
 
 // ── Plataforma MP: suscripciones (Fase 1.3) ──
@@ -247,7 +255,11 @@ builder.Services.AddScoped<IBuyerFeedPostsService, BuyerFeedPostsService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 
 // ── SignalR ──
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 32 * 1024;
+    options.StreamBufferCapacity = 10;
+});
 
 // ── CORS multi-tenant ──
 // Los orígenes ya no están hardcodeados a regibazar.com: se aceptan los dominios
@@ -378,6 +390,26 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseForwardedHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.TryAdd("X-Content-Type-Options", "nosniff");
+    headers.TryAdd("X-Frame-Options", "DENY");
+    headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+    headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    headers.TryAdd("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+    await next();
+});
+
 // Storage local SOLO en DESARROLLO (cuando las credenciales de Cloudinary son
 // "dummy" o se fuerza Storage:UseLocal=true). Las imagenes servidas viven
 // en wwwroot/uploads/{slug}/{folder}/{filename} y se exponen en /uploads/*.
@@ -414,6 +446,43 @@ static bool IsCloudinaryDummy(IConfiguration config)
     return string.IsNullOrWhiteSpace(name) || name == "dummy"
         || string.IsNullOrWhiteSpace(key) || key == "dummy"
         || string.IsNullOrWhiteSpace(secret) || secret == "dummy";
+}
+
+static RateLimitPartition<string> FixedWindow(
+    HttpContext context,
+    string policy,
+    int permitLimit,
+    TimeSpan window,
+    params string[] routeValueKeys)
+{
+    return RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(context, policy, routeValueKeys),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permitLimit,
+            Window = window,
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+}
+
+static string RateLimitPartitionKey(HttpContext context, string policy, params string[] routeValueKeys)
+{
+    var ip = ClientIp(context);
+    var routeParts = routeValueKeys
+        .Select(key => context.Request.RouteValues.TryGetValue(key, out var raw)
+            ? Convert.ToString(raw)?.Trim()
+            : null)
+        .Where(value => !string.IsNullOrWhiteSpace(value));
+    var route = string.Join(':', routeParts);
+    return string.IsNullOrWhiteSpace(route)
+        ? $"{policy}:{ip}"
+        : $"{policy}:{ip}:{route}";
+}
+
+static string ClientIp(HttpContext context)
+{
+    return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 }
 
 // 4. Autenticación y Autorización

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using EntregasApi.Data;
@@ -12,10 +13,19 @@ namespace EntregasApi.Controllers;
 
 [ApiController]
 [Route("api/driver/{driverToken}")]
+[EnableRateLimiting(SecurityRateLimitPolicies.DriverTokenWrite)]
 public class DriverController : ControllerBase
 {
     // ── Idempotency cache — evita cargos dobles por reintentos de red ──
     private static readonly ConcurrentDictionary<string, DateTime> _idempotencyCache = new();
+    private const long MaxEvidencePhotoBytes = 5 * 1024 * 1024;
+    private const int MaxEvidencePhotos = 5;
+    private static readonly HashSet<string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+    };
 
     private readonly AppDbContext _db;
     private readonly IHubContext<DeliveryHub> _hub;
@@ -400,6 +410,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost("location")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.DriverTokenHighFrequency)]
     public async Task<IActionResult> UpdateLocation(string driverToken, UpdateLocationRequest req)
     {
         var route = await _db.DeliveryRoutes.FirstOrDefaultAsync(r => r.DriverToken == driverToken);
@@ -450,6 +461,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost("deliver/{deliveryId}")]
+    [RequestSizeLimit(30 * 1024 * 1024)]
     public async Task<IActionResult> MarkDelivered(string driverToken, int deliveryId,
         [FromForm] CompleteDeliveryRequest req, [FromForm] List<IFormFile>? photos)
     {
@@ -616,6 +628,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost("fail/{deliveryId}")]
+    [RequestSizeLimit(30 * 1024 * 1024)]
     public async Task<IActionResult> MarkFailed(string driverToken, int deliveryId,
         [FromForm] FailDeliveryRequest req, [FromForm] List<IFormFile>? photos)
     {
@@ -701,8 +714,14 @@ public class DriverController : ControllerBase
 
     private async Task SavePhotos(Delivery delivery, List<IFormFile> photos, EvidenceType type)
     {
-        foreach (var photo in photos.Where(p => p.Length > 0))
+        var validPhotos = photos.Where(p => p.Length > 0).Take(MaxEvidencePhotos).ToList();
+        foreach (var photo in validPhotos)
         {
+            if (!IsValidImage(photo))
+            {
+                continue;
+            }
+
             using var stream = photo.OpenReadStream();
             var url = await _cloudinary.UploadAsync(stream, photo.FileName, "evidence");
             _db.DeliveryEvidences.Add(new DeliveryEvidence
@@ -766,6 +785,7 @@ public class DriverController : ControllerBase
     }
 
     [HttpPost("expenses")]
+    [RequestSizeLimit(8 * 1024 * 1024)]
     public async Task<IActionResult> AddExpense(string driverToken, [FromForm] decimal amount, [FromForm] string expenseType, [FromForm] string? notes, IFormFile? photo)
     {
         var route = await _db.DeliveryRoutes.FirstOrDefaultAsync(r => r.DriverToken == driverToken);
@@ -783,6 +803,11 @@ public class DriverController : ControllerBase
 
         if (photo != null && photo.Length > 0)
         {
+            if (!IsValidImage(photo))
+            {
+                return BadRequest(new { message = "La evidencia debe ser una imagen JPG, PNG o WebP menor a 5 MB." });
+            }
+
             using var stream = photo.OpenReadStream();
             expense.EvidencePath = await _cloudinary.UploadAsync(stream, photo.FileName, "expenses");
         }
@@ -798,6 +823,16 @@ public class DriverController : ControllerBase
         });
 
         return Ok(expense);
+    }
+
+    private static bool IsValidImage(IFormFile file)
+    {
+        if (file.Length <= 0 || file.Length > MaxEvidencePhotoBytes)
+        {
+            return false;
+        }
+
+        return AllowedImageContentTypes.Contains(file.ContentType);
     }
 
 

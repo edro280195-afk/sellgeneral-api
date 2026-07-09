@@ -1,5 +1,0 @@
-ORIGEN -> produccion: postgresql://neondb_owner:npg_Vg9pGmnXB5MI@ep-steep-bar-ai7vx9g2-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-
-DESTINO_PROD -> prod-cutover: postgresql://neondb_owner:npg_GmnX5gWr3QDc@ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-
-DESTINO_ENSAYO -> staging-cutover: postgresql://neondb_owner:npg_GmnX5gWr3QDc@ep-polished-brook-ata0c0us-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require

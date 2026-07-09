@@ -4,6 +4,7 @@ using EntregasApi.Models;
 using EntregasApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
@@ -22,6 +23,7 @@ public class PaymentsWebhookController : ControllerBase
     private readonly IMercadoPagoSubscriptionService _mpPlatform;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<PaymentsWebhookController> _logger;
+    private readonly IWebHostEnvironment _environment;
 
     public PaymentsWebhookController(
         AppDbContext db,
@@ -30,7 +32,8 @@ public class PaymentsWebhookController : ControllerBase
         IConfiguration config,
         IMercadoPagoSubscriptionService mpPlatform,
         TimeProvider timeProvider,
-        ILogger<PaymentsWebhookController> logger)
+        ILogger<PaymentsWebhookController> logger,
+        IWebHostEnvironment environment)
     {
         _db = db;
         _hub = hub;
@@ -39,9 +42,11 @@ public class PaymentsWebhookController : ControllerBase
         _mpPlatform = mpPlatform;
         _timeProvider = timeProvider;
         _logger = logger;
+        _environment = environment;
     }
 
     [HttpPost]
+    [EnableRateLimiting(SecurityRateLimitPolicies.Webhook)]
     public async Task<IActionResult> HandleWebhook([FromBody] MpWebhookNotification notification)
     {
         if (notification.Data?.Id == null || string.IsNullOrWhiteSpace(notification.Type))
@@ -89,8 +94,10 @@ public class PaymentsWebhookController : ControllerBase
             // Si no hay firma configurada en el server, permitimos. Esto
             // mantiene DEV funcionando sin secret; en produccion el secret
             // SIEMPRE debe existir.
-            return string.IsNullOrWhiteSpace(_config["Platform:MercadoPago:WebhookSecret"]) ||
-                   _config["Platform:MercadoPago:WebhookSecret"] == "dummy";
+            var configuredSecret = _config["Platform:MercadoPago:WebhookSecret"];
+            return _environment.IsDevelopment() &&
+                   (string.IsNullOrWhiteSpace(configuredSecret) ||
+                    configuredSecret == "dummy");
         }
 
         return _mpPlatform.ValidateWebhookSignature(

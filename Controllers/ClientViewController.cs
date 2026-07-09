@@ -5,6 +5,7 @@ using EntregasApi.Models;
 using EntregasApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
@@ -24,6 +25,7 @@ public class ClientViewController : ControllerBase
     private readonly ICamiService _cami;
     private readonly ICurrentTenant _tenant;
     private readonly IConfiguration _config;
+    private readonly ILogger<ClientViewController> _logger;
 
     public ClientViewController(
         AppDbContext db,
@@ -31,7 +33,8 @@ public class ClientViewController : ControllerBase
         IPushNotificationService push,
         ICamiService cami,
         ICurrentTenant tenant,
-        IConfiguration config)
+        IConfiguration config,
+        ILogger<ClientViewController> logger)
     {
         _db = db;
         _hub = hub;
@@ -39,10 +42,12 @@ public class ClientViewController : ControllerBase
         _cami = cami;
         _tenant = tenant;
         _config = config;
+        _logger = logger;
     }
 
     /// <summary>GET /api/pedido/{token} - Vista pública del pedido</summary>
     [HttpGet]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<ActionResult<ClientOrderView>> GetOrder(string accessToken)
     {
         var order = await _db.Orders
@@ -228,6 +233,7 @@ public class ClientViewController : ControllerBase
     /// </summary>
     [HttpPost("rating")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<ActionResult<OrderRatingDto>> SubmitRating(
         string accessToken,
         [FromBody] SubmitOrderRatingRequest req)
@@ -288,6 +294,7 @@ public class ClientViewController : ControllerBase
     }
 
     [HttpGet("cami-greeting")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<ActionResult<CamiGreetingResponse>> GetCamiGreeting(string accessToken)
     {
         var order = await _db.Orders
@@ -305,6 +312,7 @@ public class ClientViewController : ControllerBase
     /// <summary>POST /api/pedido/{token}/confirm - La clienta confirma su pedido</summary>
     [HttpPost("confirm")]
     [AllowAnonymous] // Cualquier clienta con el link puede hacerlo
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<IActionResult> ConfirmOrder(string accessToken)
     {
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
@@ -344,6 +352,7 @@ public class ClientViewController : ControllerBase
 
     [HttpGet("chat")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<IActionResult> GetChat(string accessToken)
     {
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
@@ -372,8 +381,15 @@ public class ClientViewController : ControllerBase
 
     [HttpPost("chat")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<IActionResult> SendMessage(string accessToken, [FromBody] SendMessageRequest req)
     {
+        var text = req.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 500)
+        {
+            return BadRequest(new { message = "El mensaje debe tener entre 1 y 500 caracteres." });
+        }
+
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
         if (order == null) return NotFound("Pedido no encontrado.");
 
@@ -384,7 +400,7 @@ public class ClientViewController : ControllerBase
             DeliveryRouteId = order.DeliveryRouteId,
             DeliveryId = delivery?.Id,
             Sender = "Client",
-            Text = req.Text,
+            Text = text,
             Timestamp = DateTime.UtcNow
         };
 
@@ -421,13 +437,20 @@ public class ClientViewController : ControllerBase
     /// <summary>PATCH /api/pedido/{token}/instructions - Actualiza las instrucciones de entrega</summary>
     [HttpPatch("instructions")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<IActionResult> UpdateInstructions(string accessToken, [FromBody] UpdateInstructionsRequest req)
     {
+        var instructions = req.Instructions?.Trim();
+        if (instructions is { Length: > 1000 })
+        {
+            return BadRequest(new { message = "Las instrucciones no pueden exceder 1000 caracteres." });
+        }
+
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
         if (order == null) return NotFound(new { message = "Pedido no encontrado." });
         if (order.ExpiresAt < DateTime.UtcNow) return StatusCode(410, new { message = "Este enlace ha expirado." });
 
-        order.DeliveryInstructions = req.Instructions;
+        order.DeliveryInstructions = instructions;
         await _db.SaveChangesAsync();
 
         return Ok(new { message = "Instrucciones actualizadas." });
@@ -436,6 +459,7 @@ public class ClientViewController : ControllerBase
     /// <summary>POST /api/pedido/{token}/payment/card - La clienta paga con tarjeta via Mercado Pago</summary>
     [HttpPost("payment/card")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<ActionResult<CardPaymentResultDto>> PayWithCard(
         string accessToken,
         [FromBody] CardPaymentRequest req,
@@ -500,12 +524,15 @@ public class ClientViewController : ControllerBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MercadoPago] Error de red: {ex.Message}");
+            _logger.LogWarning(ex, "[MercadoPago] Error de red al procesar pago de pedido {OrderId}", order.Id);
             return StatusCode(502, new { message = "No se pudo conectar con Mercado Pago. Intenta de nuevo." });
         }
 
         var rawBody = await httpResponse.Content.ReadAsStringAsync();
-        Console.WriteLine($"[MercadoPago] HTTP {(int)httpResponse.StatusCode}: {rawBody}");
+        _logger.LogInformation(
+            "[MercadoPago] Respuesta HTTP {StatusCode} para pago de pedido {OrderId}",
+            (int)httpResponse.StatusCode,
+            order.Id);
 
         if (!httpResponse.IsSuccessStatusCode)
         {

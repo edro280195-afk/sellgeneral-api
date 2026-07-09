@@ -3,11 +3,14 @@ using EntregasApi.Data;
 using EntregasApi.Hubs;
 using EntregasApi.Models;
 using EntregasApi.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -287,7 +290,8 @@ public class SubscriptionMpWebhookTests
             config,
             mp,
             new FixedTimeProvider(Now),
-            NullLogger<PaymentsWebhookController>.Instance);
+            NullLogger<PaymentsWebhookController>.Instance,
+            new TestWebHostEnvironment());
 
         var http = new DefaultHttpContext();
         if (includeSignatureHeader)
@@ -305,6 +309,16 @@ public class SubscriptionMpWebhookTests
         private readonly DateTimeOffset _now;
         public FixedTimeProvider(DateTimeOffset now) => _now = now;
         public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    private sealed class TestWebHostEnvironment : IWebHostEnvironment
+    {
+        public string ApplicationName { get; set; } = "EntregasApi.Tests";
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string WebRootPath { get; set; } = string.Empty;
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     private class StubMpPlatform : IMercadoPagoSubscriptionService

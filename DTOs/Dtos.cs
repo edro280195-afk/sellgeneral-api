@@ -543,10 +543,11 @@ public record SubmitOrderRatingRequest
     public int Stars { get; init; }
 
     /// <summary>Motivos/stickers seleccionados (ej. ["🎀 El producto", "⚡ La entrega"]).</summary>
+    [MaxLength(10)]
     public List<string>? Reasons { get; init; }
 
     /// <summary>Comentario libre opcional.</summary>
-    [MaxLength(1000)]
+    [MaxLength(500)]
     public string? Comment { get; init; }
 }
 
@@ -929,8 +930,8 @@ public record UpdateOrderItemRequest(
     decimal UnitPrice
 );
 
-public record SendMessageRequest(string Text);
-public record UpdateInstructionsRequest(string Instructions);
+public record SendMessageRequest([property: Required] [property: MaxLength(500)] string Text);
+public record UpdateInstructionsRequest([property: MaxLength(1000)] string? Instructions);
 
 
 // ── SalesPeriods (Cortes de Venta) ──
@@ -1040,10 +1041,10 @@ public record PosVoiceAction(string Type, string? ClientName = null, string? Pro
 
 // ── Pago con Tarjeta (Mercado Pago) ──
 public record CardPaymentRequest(
-    string CardToken,
-    string PaymentMethodId,
-    string? IssuerId,
-    int Installments);
+    [property: Required] [property: MaxLength(2048)] string CardToken,
+    [property: Required] [property: MaxLength(64)] string PaymentMethodId,
+    [property: MaxLength(64)] string? IssuerId,
+    [property: Range(1, 24)] int Installments);
 
 public record CardPaymentResultDto(
     string Status,

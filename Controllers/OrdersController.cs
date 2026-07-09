@@ -298,7 +298,6 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet("generate-vapid")]
-    [AllowAnonymous]
     public ActionResult GenerateVapid()
     {
         var keys = WebPush.VapidHelper.GenerateVapidKeys();
@@ -1504,7 +1503,6 @@ public class OrdersController : ControllerBase
 
     /// <summary>GET /api/orders/common-products - Sugerencias inteligentes</summary>
     [HttpGet("common-products")]
-    [AllowAnonymous]
     public async Task<ActionResult<List<CommonProductDto>>> GetCommonProducts()
     {
         // Optimizamos: Obtenemos los nombres y conteos con una sola agregación agrupada.

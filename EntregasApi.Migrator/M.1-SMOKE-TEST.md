@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File smoke-test.ps1 `
 1. Notifica a Regi: "ya esta, puedes usar la app normal"
 2. Deja la base vieja (ep-steep-bar-...) accesible en read-only por 30 dias como red de seguridad
 3. Limpia los archivos de snapshot (`EntregasApi.Migrator/.snapshot_*.txt`) cuando estes seguro
-4. **MUY IMPORTANTE**: agregá `connectionStrings.txt` al `.gitignore` o movelo fuera del repo. Contiene passwords de las 3 bases de Neon.
+4. **MUY IMPORTANTE**: `connectionStrings.txt` no debe existir en el repo. Ya está cubierto por `.gitignore`; guarda esos valores en variables de entorno o en tu gestor de secretos.
 
 ## Smoke test manual en el navegador
 

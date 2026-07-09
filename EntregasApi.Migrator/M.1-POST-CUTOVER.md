@@ -56,21 +56,21 @@ El `appsettings.json` tiene `Password=dummy` (placeholder). El password real va 
 **Opcion A — Env var en el host de la app (recomendado para prod):**
 ```bash
 # Windows (cmd):
-setx ConnectionStrings__Default "Host=ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_GmnX5gWr3QDc;SSL Mode=Require;Trust Server Certificate=true"
+setx ConnectionStrings__Default "Host=<HOST>;Database=<DB>;Username=<USER>;Password=<PASSWORD>;SSL Mode=Require;Trust Server Certificate=true"
 # Nota: setx requiere re-login para que tome efecto, o reiniciar la app.
 
 # Windows (PowerShell, sesion actual):
-$env:ConnectionStrings__Default = "Host=ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_GmnX5gWr3QDc;SSL Mode=Require;Trust Server Certificate=true"
+$env:ConnectionStrings__Default = "Host=<HOST>;Database=<DB>;Username=<USER>;Password=<PASSWORD>;SSL Mode=Require;Trust Server Certificate=true"
 # Nota: solo aplica a esta sesion. Para que persista, usa setx o configuralo en el IIS/app service.
 
 # Linux/Docker env:
-export ConnectionStrings__Default="Host=ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_GmnX5gWr3QDc;SSL Mode=Require;Trust Server Certificate=true"
+export ConnectionStrings__Default="Host=<HOST>;Database=<DB>;Username=<USER>;Password=<PASSWORD>;SSL Mode=Require;Trust Server Certificate=true"
 ```
 
 **Opcion B — Editar `appsettings.Development.json`** (solo si la app corre en Development; este archivo SI esta en `.gitignore`):
 ```json
 "ConnectionStrings": {
-  "Default": "Host=ep-lively-wind-aty96jj0-pooler.c-9.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_GmnX5gWr3QDc;SSL Mode=Require;Trust Server Certificate=true"
+  "Default": "Host=<HOST>;Database=<DB>;Username=<USER>;Password=<PASSWORD>;SSL Mode=Require;Trust Server Certificate=true"
 }
 ```
 

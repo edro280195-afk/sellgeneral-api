@@ -3,6 +3,7 @@ using EntregasApi.Models;
 using EntregasApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using WebPush;
 using System.Text.Json;
@@ -34,10 +35,17 @@ public class PushController : ControllerBase
     /// </summary>
     [HttpPost("subscribe-fcm")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PushSubscribe)]
     public async Task<IActionResult> SubscribeFcm([FromBody] FcmSubscribeRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.FcmToken))
             return BadRequest("FcmToken requerido.");
+        if (req.FcmToken.Length > 4096)
+            return BadRequest("FcmToken demasiado largo.");
+        if (!IsAllowedRole(req.Role, "driver", "admin"))
+            return BadRequest("Role invalido.");
+        if (req.DriverRouteToken is { Length: > 128 })
+            return BadRequest("DriverRouteToken demasiado largo.");
 
         var existing = await _db.FcmTokens.FirstOrDefaultAsync(t => t.Token == req.FcmToken);
 
@@ -68,8 +76,12 @@ public class PushController : ControllerBase
     /// </summary>
     [HttpDelete("unsubscribe-fcm")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PushSubscribe)]
     public async Task<IActionResult> UnsubscribeFcm([FromQuery] string fcmToken)
     {
+        if (string.IsNullOrWhiteSpace(fcmToken) || fcmToken.Length > 4096)
+            return BadRequest("FcmToken invalido.");
+
         var existing = await _db.FcmTokens.FirstOrDefaultAsync(t => t.Token == fcmToken);
         if (existing != null)
         {
@@ -85,8 +97,12 @@ public class PushController : ControllerBase
 
     [HttpPost("subscribe")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PushSubscribe)]
     public async Task<IActionResult> Subscribe([FromBody] PushSubscriptionRequest req)
     {
+        var validationError = ValidateSubscription(req);
+        if (validationError is not null) return validationError;
+
         var existing = await _db.PushSubscriptions
             .FirstOrDefaultAsync(s => s.Endpoint == req.Endpoint);
 
@@ -123,8 +139,12 @@ public class PushController : ControllerBase
 
     [HttpDelete("unsubscribe")]
     [AllowAnonymous]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PushSubscribe)]
     public async Task<IActionResult> Unsubscribe([FromQuery] string endpoint)
     {
+        if (string.IsNullOrWhiteSpace(endpoint) || endpoint.Length > 2048)
+            return BadRequest("Endpoint invalido.");
+
         var sub = await _db.PushSubscriptions.FirstOrDefaultAsync(s => s.Endpoint == endpoint);
         if (sub != null)
         {
@@ -143,9 +163,12 @@ public class PushController : ControllerBase
     /// Útil para: chat del chofer→clienta, cambios de estado, proximidad.
     /// </summary>
     [HttpPost("send/client/{clientId}")]
-    [AllowAnonymous] // En producción podrías validar con token interno
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
     public async Task<IActionResult> SendToClient(int clientId, [FromBody] NotificationPayload payload)
     {
+        var validationError = ValidateNotificationPayload(payload);
+        if (validationError is not null) return validationError;
+
         var subs = await _db.PushSubscriptions
             .Where(s => s.Role == "client" && s.ClientId == clientId)
             .ToListAsync();
@@ -159,9 +182,12 @@ public class PushController : ControllerBase
     /// Útil para: chat del admin→chofer, chat de clienta→chofer.
     /// </summary>
     [HttpPost("send/driver/{routeToken}")]
-    [AllowAnonymous]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
     public async Task<IActionResult> SendToDriver(string routeToken, [FromBody] NotificationPayload payload)
     {
+        var validationError = ValidateNotificationPayload(payload);
+        if (validationError is not null) return validationError;
+
         var subs = await _db.PushSubscriptions
             .Where(s => s.Role == "driver" && s.DriverRouteToken == routeToken)
             .ToListAsync();
@@ -175,9 +201,12 @@ public class PushController : ControllerBase
     /// Útil para: chat del chofer→admin, alertas de entregas fallidas.
     /// </summary>
     [HttpPost("send/admins")]
-    [AllowAnonymous]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
     public async Task<IActionResult> SendToAdmins([FromBody] NotificationPayload payload)
     {
+        var validationError = ValidateNotificationPayload(payload);
+        if (validationError is not null) return validationError;
+
         var subs = await _db.PushSubscriptions
             .Where(s => s.Role == "admin")
             .ToListAsync();
@@ -193,6 +222,9 @@ public class PushController : ControllerBase
     [Authorize]
     public async Task<IActionResult> TestNotification([FromBody] NotificationPayload payload)
     {
+        var validationError = ValidateNotificationPayload(payload);
+        if (validationError is not null) return validationError;
+
         var subs = await _db.PushSubscriptions.ToListAsync();
         if (!subs.Any()) return NotFound("No hay suscripciones activas.");
 
@@ -267,6 +299,45 @@ public class PushController : ControllerBase
 
         await _db.SaveChangesAsync();
         return new { success = successCount, failed = failCount };
+    }
+
+    private BadRequestObjectResult? ValidateSubscription(PushSubscriptionRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Endpoint) || req.Endpoint.Length > 2048)
+            return BadRequest("Endpoint requerido o demasiado largo.");
+        if (req.Keys is null ||
+            string.IsNullOrWhiteSpace(req.Keys.P256dh) ||
+            string.IsNullOrWhiteSpace(req.Keys.Auth) ||
+            req.Keys.P256dh.Length > 512 ||
+            req.Keys.Auth.Length > 512)
+            return BadRequest("Llaves push invalidas.");
+        if (!IsAllowedRole(req.Role, "client", "driver", "admin"))
+            return BadRequest("Role invalido.");
+        if (req.DriverRouteToken is { Length: > 128 })
+            return BadRequest("DriverRouteToken demasiado largo.");
+
+        return null;
+    }
+
+    private BadRequestObjectResult? ValidateNotificationPayload(NotificationPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.Title) || payload.Title.Length > 120)
+            return BadRequest("Titulo requerido o demasiado largo.");
+        if (string.IsNullOrWhiteSpace(payload.Body) || payload.Body.Length > 500)
+            return BadRequest("Mensaje requerido o demasiado largo.");
+        if (payload.Url is { Length: > 2048 } ||
+            payload.Icon is { Length: > 2048 } ||
+            payload.Tag is { Length: > 128 } ||
+            payload.Type is { Length: > 64 })
+            return BadRequest("Payload demasiado largo.");
+
+        return null;
+    }
+
+    private static bool IsAllowedRole(string? role, params string[] allowed)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return true;
+        return allowed.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);
     }
 }
 

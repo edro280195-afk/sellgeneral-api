@@ -6,7 +6,9 @@ using EntregasApi.Data;
 using EntregasApi.Hubs;
 using EntregasApi.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace EntregasApi.Controllers;
@@ -43,6 +45,7 @@ public class PublicTandaController : ControllerBase
     }
 
     [HttpGet("{token}")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<IActionResult> GetTandaByToken(string token)
     {
         try
@@ -56,13 +59,14 @@ public class PublicTandaController : ControllerBase
 
             return Ok(tanda);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new { message = "No se pudo consultar la tanda." });
         }
     }
 
     [HttpPost("{token}/payment/card")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<IActionResult> PayWithCard(string token, [FromBody] TandaCardPaymentRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.CardToken) ||
@@ -171,17 +175,26 @@ public class PublicTandaController : ControllerBase
                 paymentId = mpResult?.Id
             });
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new { message = "No se pudo procesar el pago de la tanda." });
         }
     }
 
     public class TandaCardPaymentRequest
     {
+        [Required]
         public Guid ParticipantId { get; set; }
+
+        [Range(1, 500)]
         public int WeekNumber { get; set; }
+
+        [Required]
+        [MaxLength(2048)]
         public string CardToken { get; set; } = "";
+
+        [Required]
+        [MaxLength(64)]
         public string PaymentMethodId { get; set; } = "";
     }
 

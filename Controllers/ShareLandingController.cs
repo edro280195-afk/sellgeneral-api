@@ -2,8 +2,10 @@ using System.Globalization;
 using System.Net;
 using EntregasApi.Data;
 using EntregasApi.Models;
+using EntregasApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace EntregasApi.Controllers;
@@ -52,6 +54,7 @@ public class ShareLandingController : ControllerBase
     /// se llama <c>accessToken</c> para que TenantResolutionMiddleware resuelva
     /// el negocio del pedido y el filtro global multi-tenant lo encuentre.</summary>
     [HttpGet("/o/{accessToken}")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<IActionResult> Landing(string accessToken)
     {
         var order = await LoadOrderAsync(accessToken);
@@ -79,6 +82,7 @@ public class ShareLandingController : ControllerBase
 
     /// <summary>GET /api/pedido/{accessToken}/teaser — vista previa mínima pública.</summary>
     [HttpGet("/api/pedido/{accessToken}/teaser")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<ActionResult<OrderTeaserDto>> Teaser(string accessToken)
     {
         var order = await LoadOrderAsync(accessToken);
@@ -176,16 +180,18 @@ public class ShareLandingController : ControllerBase
     /// </summary>
     private async Task RecordImpressionAsync(string accessToken, int? businessId)
     {
+        if (businessId is null) return;
+
         try
         {
             var ua = Request.Headers["User-Agent"].ToString();
             _db.LinkEvents.Add(new LinkEvent
             {
-                BusinessId = businessId ?? 1,
+                BusinessId = businessId.Value,
                 OrderAccessToken = accessToken,
                 Event = "impression",
                 UserAgent = string.IsNullOrWhiteSpace(ua) ? null : Truncate(ua, 512),
-                IpAddress = ExtractForwardedIp(),
+                IpAddress = ExtractIp(),
             });
             await _db.SaveChangesAsync();
         }
@@ -196,14 +202,8 @@ public class ShareLandingController : ControllerBase
         }
     }
 
-    private string? ExtractForwardedIp()
+    private string? ExtractIp()
     {
-        var fwd = Request.Headers["X-Forwarded-For"].ToString();
-        if (!string.IsNullOrWhiteSpace(fwd))
-        {
-            var ip = fwd.Split(',')[0].Trim();
-            return Truncate(ip, 64);
-        }
         var remote = HttpContext.Connection.RemoteIpAddress?.ToString();
         return string.IsNullOrWhiteSpace(remote) ? null : Truncate(remote, 64);
     }

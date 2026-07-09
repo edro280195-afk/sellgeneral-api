@@ -14,6 +14,7 @@ public class AuthTokenTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
+                ["ASPNETCORE_ENVIRONMENT"] = "Development",
                 ["Jwt:Key"] = "short",
                 ["Jwt:Issuer"] = "tests",
                 ["Jwt:Audience"] = "tests"
