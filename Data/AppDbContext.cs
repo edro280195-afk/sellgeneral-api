@@ -77,13 +77,6 @@ public class AppDbContext : DbContext
     public DbSet<ClientMergeAudit> ClientMergeAudits => Set<ClientMergeAudit>();
     public DbSet<ClientClaimAudit> ClientClaimAudits => Set<ClientClaimAudit>();
 
-    // Live Capture pipeline
-    public DbSet<LiveSession> LiveSessions => Set<LiveSession>();
-    public DbSet<LiveProduct> LiveProducts => Set<LiveProduct>();
-    public DbSet<LiveSpokenOrder> LiveSpokenOrders => Set<LiveSpokenOrder>();
-    public DbSet<LiveCommentOrder> LiveCommentOrders => Set<LiveCommentOrder>();
-    public DbSet<LiveCandidate> LiveCandidates => Set<LiveCandidate>();
-
     // Comunidad de tienda (seguir, push nativo, en vivo, novedades)
     public DbSet<StoreFollower> StoreFollowers => Set<StoreFollower>();
     public DbSet<BuyerDeviceToken> BuyerDeviceTokens => Set<BuyerDeviceToken>();
@@ -246,19 +239,6 @@ public class AppDbContext : DbContext
             entity.Property(a => a.ClaimedAt)
                   .HasDefaultValueSql("NOW()");
         });
-
-        // Live Capture pipeline
-        modelBuilder.Entity<LiveCandidate>()
-            .HasOne(c => c.LiveSession)
-            .WithMany(s => s.Candidates)
-            .HasForeignKey(c => c.LiveSessionId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<LiveCandidate>()
-            .HasOne(c => c.LiveProduct)
-            .WithMany(p => p.Candidates)
-            .HasForeignKey(c => c.LiveProductId)
-            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<TandaParticipant>()
             .HasIndex(tp => new { tp.TandaId, tp.AssignedTurn })

@@ -83,11 +83,6 @@ public static class DevelopmentTenantSeeder
         await BackfillAsync<Tanda>(db, cancellationToken);
         await BackfillAsync<Raffle>(db, cancellationToken);
         await BackfillAsync<LoyaltyReward>(db, cancellationToken);
-        await BackfillAsync<LiveSession>(db, cancellationToken);
-        await BackfillAsync<LiveProduct>(db, cancellationToken);
-        await BackfillAsync<LiveSpokenOrder>(db, cancellationToken);
-        await BackfillAsync<LiveCommentOrder>(db, cancellationToken);
-        await BackfillAsync<LiveCandidate>(db, cancellationToken);
         await BackfillAsync<FcmToken>(db, cancellationToken);
         await BackfillAsync<PushSubscriptionModel>(db, cancellationToken);
         await BackfillAsync<Order>(db, cancellationToken);

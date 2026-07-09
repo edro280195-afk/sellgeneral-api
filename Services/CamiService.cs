@@ -1824,54 +1824,7 @@ Tu objetivo es procesar sus instrucciones de entrega o cobranza usando tus herra
         var sevenDaysAgo = now.AddDays(-7);
         var result = new List<CamiProactiveSuggestionDto>();
 
-        // 1. Live sessions with pending candidates from the last 7 days
-        var livesWithPending = await _db.LiveSessions
-            .Where(s => s.ImportedAt >= sevenDaysAgo)
-            .Select(s => new {
-                s.Id,
-                s.Title,
-                s.ImportedAt,
-                Pending = s.Candidates.Count(c => c.Status == LiveCandidateStatus.Pending)
-            })
-            .Where(x => x.Pending > 0)
-            .ToListAsync();
-
-        foreach (var l in livesWithPending)
-        {
-            var label = !string.IsNullOrEmpty(l.Title) ? l.Title : $"live del {l.ImportedAt.ToLocalTime():dddd dd/MM}";
-            result.Add(new CamiProactiveSuggestionDto(
-                Kind: "live-pending",
-                Icon: "🎬",
-                Title: $"{l.Pending} candidato{(l.Pending == 1 ? "" : "s")} sin confirmar",
-                Detail: $"Del {label}. Revísalos para no perder pedidos.",
-                ActionLabel: "Ir a revisar",
-                ActionRoute: $"/admin/live/{l.Id}/review",
-                Priority: 10
-            ));
-        }
-
-        // 2. Lives still processing (long-running)
-        var processingLives = await _db.LiveSessions
-            .Where(s => s.Status != LiveSessionStatus.Ready
-                     && s.Status != LiveSessionStatus.Failed
-                     && s.ImportedAt < now.AddMinutes(-30))
-            .Select(s => new { s.Id, s.Status, s.Title })
-            .ToListAsync();
-
-        foreach (var l in processingLives)
-        {
-            result.Add(new CamiProactiveSuggestionDto(
-                Kind: "live-stuck",
-                Icon: "⏳",
-                Title: "Hay un live procesándose desde hace rato",
-                Detail: $"{l.Title ?? "Live"} sigue en estado {l.Status}. ¿Lo reintento?",
-                ActionLabel: "Ver",
-                ActionRoute: $"/admin/live/{l.Id}/review",
-                Priority: 5
-            ));
-        }
-
-        // 3. Pending duplicate suggestions count
+        // 1. Pending duplicate suggestions count
         // The resolver service has GetDuplicateSuggestionsAsync — but it might be heavy.
         // Use a quick query: clients with same NormalizedPhone (group by phone, count > 1)
         var phoneDups = await _db.Clients

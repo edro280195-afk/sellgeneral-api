@@ -67,7 +67,7 @@ public class BuyerFeedServiceTests
     }
 
     [Fact]
-    public async Task GetHome_MarksClaimedStoreAsLive_WhenItHasReadyLiveSession()
+    public async Task GetHome_MarksClaimedStoreAsLive_WhenItHasActiveLiveAnnouncement()
     {
         using var ctx = TestDbContextFactory.Create();
 
@@ -84,12 +84,11 @@ public class BuyerFeedServiceTests
             Name = "Sofia",
             NormalizedName = "sofia",
         });
-        ctx.LiveSessions.Add(new LiveSession
+        ctx.LiveAnnouncements.Add(new LiveAnnouncement
         {
             BusinessId = business.Id,
-            FacebookUrl = "https://facebook.com/live/1",
-            Status = LiveSessionStatus.Ready,
-            ImportedAt = DateTime.UtcNow,
+            Title = "Rebajas",
+            StartedAt = DateTime.UtcNow,
         });
         await ctx.SaveChangesAsync();
 

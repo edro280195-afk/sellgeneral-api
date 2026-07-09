@@ -121,7 +121,12 @@ public abstract class TenantAwareHubBase : Hub
         CurrentTenant.SetBusiness(businessId);
     }
 
-    private static int? ReadAccountId(ClaimsPrincipal? user)
+    /// <summary>
+    /// Lee el AccountId del JWT sin requerir Membership — lo usan los hubs
+    /// del lado compradora (ej. LiveHub.JoinLive), que se autorizan por
+    /// AccountId cross-tenant, no por membership + X-Business-Id.
+    /// </summary>
+    protected static int? ReadAccountId(ClaimsPrincipal? user)
     {
         if (user is null) return null;
         var raw = user.FindFirstValue("account_id")

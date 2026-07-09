@@ -33,6 +33,13 @@ public static class SignalRGroupNames
     /// <summary>Grupo de la "Nodriza" del POS (todas las cajas del tenant).</summary>
     public static string PosNodriza(int businessId) => $"{TenantPrefix(businessId)}PosNodriza";
 
+    /// <summary>
+    /// Grupo del "vivo" en tiempo real de una tienda: la vendedora (admin)
+    /// y las compradoras conectadas comparten el mismo grupo. La vendedora
+    /// anuncia con LiveHub.AnnounceProduct; las compradoras solo reciben.
+    /// </summary>
+    public static string Live(int businessId) => $"{TenantPrefix(businessId)}Live";
+
     // ── Grupos de ruta (driver) ──
 
     /// <summary>

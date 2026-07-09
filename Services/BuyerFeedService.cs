@@ -65,10 +65,14 @@ public class BuyerFeedService : IBuyerFeedService
             .ToListAsync(cancellationToken);
         var bizById = businesses.ToDictionary(b => b.Id);
 
-        var liveBusinessIds = await _db.LiveSessions.AsNoTracking().IgnoreQueryFilters()
-            .Where(l => businessIds.Contains(l.BusinessId)
-                        && l.Status == LiveSessionStatus.Ready)
-            .Select(l => l.BusinessId)
+        // "En vivo ahora": mismo criterio que BuyerStoreService (LiveAnnouncement
+        // activo, TTL 3h) — no el pipeline viejo de LiveSession.
+        var liveNowCutoff = DateTime.UtcNow.AddHours(-3);
+        var liveBusinessIds = await _db.LiveAnnouncements.AsNoTracking().IgnoreQueryFilters()
+            .Where(a => businessIds.Contains(a.BusinessId)
+                        && a.EndedAt == null && a.StartedAt > liveNowCutoff)
+            .Select(a => a.BusinessId)
+            .Distinct()
             .ToListAsync(cancellationToken);
         var liveBusinesses = liveBusinessIds.ToHashSet();
 

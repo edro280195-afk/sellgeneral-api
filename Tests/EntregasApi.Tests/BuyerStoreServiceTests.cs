@@ -105,7 +105,6 @@ public class BuyerStoreServiceTests
         Assert.Equal("#FF0072", store.BrandPrimaryColor);
         Assert.Equal(320, store.Points.CurrentPoints);
         Assert.Null(store.Points.NextRewardAt); // sin rewards
-        Assert.Null(store.Live);
         Assert.Empty(store.Products);
         Assert.Equal(0, store.ActiveTandasCount);
         Assert.Equal(0, store.ActiveRafflesCount);
@@ -151,89 +150,6 @@ public class BuyerStoreServiceTests
         var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
 
         Assert.Equal(100, store.Points.NextRewardAt); // la más barata activa
-    }
-
-    [Fact]
-    public async Task GetStore_WithActiveLive_ReturnsLiveSummary()
-    {
-        using var ctx = TestDbContextFactory.Create();
-        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
-        ctx.Businesses.Add(business);
-        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
-        ctx.Accounts.Add(account);
-        await ctx.SaveChangesAsync();
-
-        ctx.Clients.Add(new Client
-        {
-            BusinessId = business.Id, AccountId = account.Id, Name = "Ana",
-            NormalizedName = "ana",
-        });
-        await ctx.SaveChangesAsync();
-
-        var live = new LiveSession
-        {
-            BusinessId = business.Id,
-            FacebookUrl = "https://facebook.com/live/123",
-            Title = "Live de sartenes",
-            Status = LiveSessionStatus.Ready,
-            ImportedAt = DateTime.UtcNow.AddDays(-1),
-            ProcessedAt = DateTime.UtcNow,
-        };
-        ctx.LiveSessions.Add(live);
-        await ctx.SaveChangesAsync();
-
-        ctx.LiveProducts.AddRange(
-            new LiveProduct
-            {
-                BusinessId = business.Id, LiveSessionId = live.Id,
-                Keyword = "sartén", Description = "Sartén 26cm", Price = 590m,
-                AnnouncedAtSeconds = 120,
-            },
-            new LiveProduct
-            {
-                BusinessId = business.Id, LiveSessionId = live.Id,
-                Keyword = "blusa", Description = "Blusa coqueta", Price = 249m,
-                AnnouncedAtSeconds = 60,
-            });
-        await ctx.SaveChangesAsync();
-
-        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
-
-        Assert.NotNull(store.Live);
-        Assert.Equal("Live de sartenes", store.Live!.Title);
-        Assert.Equal(live.Id, store.Live.SessionId);
-        Assert.Equal(0, store.Live.ViewerCount); // stub
-        Assert.Contains("blusa", store.Live.Topics ?? "");
-        Assert.Contains("sartén", store.Live.Topics ?? "");
-    }
-
-    [Fact]
-    public async Task GetStore_OnlyReadyLivesAreReturned()
-    {
-        using var ctx = TestDbContextFactory.Create();
-        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
-        ctx.Businesses.Add(business);
-        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
-        ctx.Accounts.Add(account);
-        await ctx.SaveChangesAsync();
-
-        ctx.Clients.Add(new Client
-        {
-            BusinessId = business.Id, AccountId = account.Id, Name = "Ana",
-            NormalizedName = "ana",
-        });
-        ctx.LiveSessions.Add(new LiveSession
-        {
-            BusinessId = business.Id,
-            FacebookUrl = "https://fb.com/queued",
-            Status = LiveSessionStatus.Queued, // aún no publicado
-            ImportedAt = DateTime.UtcNow,
-        });
-        await ctx.SaveChangesAsync();
-
-        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
-
-        Assert.Null(store.Live);
     }
 
     [Fact]

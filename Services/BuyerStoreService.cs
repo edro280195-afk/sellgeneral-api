@@ -60,6 +60,8 @@ public class BuyerStoreService : IBuyerStoreService
                 b.LogoUrl,
                 b.BrandPrimaryColor,
                 b.BrandAccentColor,
+                b.FacebookUrl,
+                b.MessengerUrl,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -90,27 +92,6 @@ public class BuyerStoreService : IBuyerStoreService
             .Where(r => r.BusinessId == businessId && r.IsActive)
             .OrderBy(r => r.PointsCost)
             .Select(r => (int?)r.PointsCost)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        // Live activo: cualquier LiveSession con Status = Ready (publicado).
-        // Por ahora no hay modelo de "viewerCount" en LiveSession, así que
-        // devolvemos 0 como stub. Cuando se agregue el hub de viewers, se
-        // conecta y se actualiza vía SignalR.
-        var live = await _db.LiveSessions.AsNoTracking().IgnoreQueryFilters()
-            .Where(l => l.BusinessId == businessId
-                        && l.Status == LiveSessionStatus.Ready)
-            .OrderByDescending(l => l.ProcessedAt ?? l.ImportedAt)
-            .Select(l => new
-            {
-                l.Id,
-                l.Title,
-                l.ProcessedAt,
-                TopicKeywords = l.Products
-                    .OrderBy(p => p.AnnouncedAtSeconds)
-                    .Take(3)
-                    .Select(p => p.Keyword)
-                    .ToList(),
-            })
             .FirstOrDefaultAsync(cancellationToken);
 
         // Productos activos más recientes (sin imagen — el modelo no la tiene).
@@ -156,7 +137,14 @@ public class BuyerStoreService : IBuyerStoreService
         var liveAnnouncement = await _db.LiveAnnouncements.AsNoTracking().IgnoreQueryFilters()
             .Where(a => a.BusinessId == businessId && a.EndedAt == null && a.StartedAt > liveNowCutoff)
             .OrderByDescending(a => a.StartedAt)
-            .Select(a => new { a.Title })
+            .Select(a => new
+            {
+                a.Title,
+                a.CurrentProductId,
+                a.CurrentProductName,
+                a.CurrentProductPrice,
+                a.CurrentAnnouncedAt,
+            })
             .FirstOrDefaultAsync(cancellationToken);
 
         // Verificada = tiene logo y color de acento configurados.
@@ -166,22 +154,6 @@ public class BuyerStoreService : IBuyerStoreService
         var brand = !string.IsNullOrWhiteSpace(business.BrandPrimaryColor)
             ? business.BrandPrimaryColor
             : DefaultBrandColor;
-
-        BuyerLiveSummaryDto? liveDto = null;
-        if (live is not null)
-        {
-            string? topics = null;
-            if (live.TopicKeywords.Count > 0)
-            {
-                topics = string.Join(", ", live.TopicKeywords);
-            }
-            liveDto = new BuyerLiveSummaryDto(
-                SessionId: live.Id,
-                Title: live.Title ?? "Live",
-                ViewerCount: 0,
-                Topics: topics,
-                ProcessedAt: live.ProcessedAt);
-        }
 
         return new BuyerStoreDetailDto(
             BusinessId: business.Id,
@@ -194,7 +166,6 @@ public class BuyerStoreService : IBuyerStoreService
             ClientCount: clientCount,
             IsVerified: isVerified,
             Points: new BuyerStorePointsDto(myClient?.CurrentPoints ?? 0, nextRewardAt),
-            Live: liveDto,
             Products: products,
             ActiveTandasCount: activeTandasCount,
             ActiveRafflesCount: activeRafflesCount,
@@ -203,6 +174,12 @@ public class BuyerStoreService : IBuyerStoreService
             IsVip: myFollow?.IsVip ?? false,
             IsLiveNow: liveAnnouncement is not null,
             LiveAnnouncementTitle: liveAnnouncement?.Title,
+            LiveCurrentProductId: liveAnnouncement?.CurrentProductId,
+            LiveCurrentProductName: liveAnnouncement?.CurrentProductName,
+            LiveCurrentProductPrice: liveAnnouncement?.CurrentProductPrice,
+            LiveCurrentAnnouncedAt: liveAnnouncement?.CurrentAnnouncedAt,
+            FacebookUrl: business.FacebookUrl,
+            MessengerUrl: business.MessengerUrl,
             AverageRating: ratingStats?.Average,
             RatingsCount: ratingStats?.Count ?? 0);
     }

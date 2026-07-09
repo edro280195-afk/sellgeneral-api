@@ -1114,56 +1114,6 @@ public record ClientAliasDto(
 
 // ── Live Capture ──
 
-public record ImportLiveRequest(string FacebookUrl, string? Title = null);
-
-public record LiveSessionDto(
-    int Id,
-    string FacebookUrl,
-    string? Title,
-    string Status,
-    string? StatusDetail,
-    DateTime ImportedAt,
-    DateTime? ProcessedAt,
-    double? DurationSeconds,
-    int ProductCount,
-    int CandidateCount,
-    int PendingCount,
-    string? Transcript = null);
-
-public record LiveProductDto(
-    int Id,
-    string Keyword,
-    string? Description,
-    decimal Price,
-    double? AnnouncedAtSeconds,
-    int CandidateCount);
-
-public record LiveCandidateDto(
-    int Id,
-    string Keyword,
-    int? LiveProductId,
-    string? ClientNameSpoken,
-    string? CommentDisplayName,
-    int? ResolvedClientId,
-    string? ResolvedClientName,
-    string? ProposedAliasPairJson,
-    string Source,   // "Spoken" | "Comment" | "SpokenAndComment"
-    string Status,   // "Pending" | "Confirmed" | "Ignored"
-    double? SpokenAtSeconds = null);
-
-public record LiveReviewDto(
-    LiveSessionDto Session,
-    List<LiveProductDto> Products,
-    Dictionary<int, List<LiveCandidateDto>> CandidatesByProduct,
-    List<LiveCandidateDto> UnmatchedCandidates);
-
-public record ConfirmCandidateRequest(
-    int? ClientId = null,          // null = create new client
-    string? ClientName = null,     // used when creating new client
-    string? ProductOverride = null,
-    decimal? PriceOverride = null,
-    bool AcceptAlias = false);
-
 public record ClientMergeAuditDto(
     int Id,
     int SourceClientId,
@@ -1401,13 +1351,6 @@ public record BuyerProductDto(
 /// Resumen del live activo de una tienda (Status = Ready). Se incluye
 /// solo si hay una sesión de live "publicada" en el momento del GET.
 /// </summary>
-public record BuyerLiveSummaryDto(
-    int SessionId,
-    string Title,
-    int ViewerCount,
-    string? Topics,
-    DateTime? ProcessedAt);
-
 /// <summary>
 /// Puntos de la compradora en una tienda y el costo de la próxima reward
 /// que podría canjear (o null si la tienda no tiene rewards configuradas).
@@ -1432,7 +1375,6 @@ public record BuyerStoreDetailDto(
     int ClientCount,
     bool IsVerified,
     BuyerStorePointsDto Points,
-    BuyerLiveSummaryDto? Live,
     List<BuyerProductDto> Products,
     int ActiveTandasCount,
     int ActiveRafflesCount,
@@ -1441,6 +1383,12 @@ public record BuyerStoreDetailDto(
     bool IsVip,
     bool IsLiveNow,
     string? LiveAnnouncementTitle,
+    int? LiveCurrentProductId,
+    string? LiveCurrentProductName,
+    decimal? LiveCurrentProductPrice,
+    DateTime? LiveCurrentAnnouncedAt,
+    string? FacebookUrl,
+    string? MessengerUrl,
     double? AverageRating,
     int RatingsCount);
 
@@ -1469,6 +1417,9 @@ public record RegisterDeviceRequest(string Token, string Platform);
 public record StartLiveAnnouncementRequest(string? Title);
 
 public record LiveAnnouncementDto(int Id, string? Title, DateTime StartedAt, bool IsActive);
+
+/// <summary>Producto del catálogo para selectores simples del lado vendedora (ej. anunciar en vivo).</summary>
+public record SellerProductDto(int Id, string Name, decimal Price, int Stock);
 
 public record CreateStorePostRequest(string Body, string? ImageUrl, bool IsVipOnly);
 

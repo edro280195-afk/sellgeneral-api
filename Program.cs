@@ -244,7 +244,6 @@ builder.Services.AddScoped<IBuyerDeviceService, BuyerDeviceService>();
 builder.Services.AddScoped<ILiveAnnouncementService, LiveAnnouncementService>();
 builder.Services.AddScoped<IStorePostsService, StorePostsService>();
 builder.Services.AddScoped<IBuyerFeedPostsService, BuyerFeedPostsService>();
-builder.Services.AddScoped<ILiveCaptureService, LiveCaptureService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 
 // ── SignalR ──
@@ -430,5 +429,6 @@ app.MapHub<TrackingHub>("/hubs/tracking");
 app.MapHub<OrderHub>("/hubs/orders");
 app.MapHub<LogisticsHub>("/hubs/logistics");
 app.MapHub<PosHub>("/hubs/pos");
+app.MapHub<LiveHub>("/hubs/live");
 
 app.Run();

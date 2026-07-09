@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using EntregasApi.Data;
 using EntregasApi.DTOs;
 using EntregasApi.Models;
@@ -48,6 +49,16 @@ public class BuyerReserveService : IBuyerReserveService
 {
     private const string DefaultBrandColor = "#FB6F9C";
 
+    // Candado en proceso por (BusinessId, ProductId): serializa los
+    // "Apartar" concurrentes sobre el MISMO producto para que una ráfaga de
+    // toques durante un live (varias compradoras apartando el mismo
+    // artículo casi a la vez) no sobrevenda el último disponible. `static`
+    // a propósito — tiene que sobrevivir entre instancias Scoped de este
+    // service, una por request, para de verdad serializar entre requests.
+    // Nota: solo protege dentro de este proceso; si el API llegara a correr
+    // en varias instancias a la vez, esto dejaría de alcanzar por sí solo.
+    private static readonly ConcurrentDictionary<(int BusinessId, int ProductId), SemaphoreSlim> ReserveGates = new();
+
     private readonly AppDbContext _db;
     private readonly IOrderService _orderService;
     private readonly IPushNotificationService _push;
@@ -61,6 +72,9 @@ public class BuyerReserveService : IBuyerReserveService
         _orderService = orderService;
         _push = push;
     }
+
+    private static SemaphoreSlim GateFor(int businessId, int productId) =>
+        ReserveGates.GetOrAdd((businessId, productId), static _ => new SemaphoreSlim(1, 1));
 
     public async Task<BuyerOrderDto> ReserveAsync(
         int accountId,
@@ -85,69 +99,96 @@ public class BuyerReserveService : IBuyerReserveService
             throw new ReserveNotFoundException("Esta tienda no está en tu cuenta.");
         }
 
-        // 2. Resolver el producto (debe existir, estar activo, y pertenecer
-        //    a esta tienda).
-        var product = await _db.Products.AsNoTracking().IgnoreQueryFilters()
-            .Where(p => p.Id == request.ProductId
-                        && p.BusinessId == request.BusinessId)
-            .Select(p => new { p.Id, p.Name, p.Price, p.Stock, p.IsActive })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (product is null)
+        // 2. Candado en proceso por producto: dos "Apartar" simultáneos
+        //    sobre el mismo producto se serializan aquí, así ninguno lee
+        //    stock disponible que el otro ya se está por quedar. Sin esto,
+        //    una ráfaga de toques durante un live (varias compradoras
+        //    apartando el mismo artículo casi a la vez) podría sobrevender
+        //    el último disponible — Product.Stock no se decrementa al
+        //    apartar (eso lo sigue haciendo PosService al pagar), así que
+        //    el único freno real es contar también lo que ya está apartado
+        //    y sin pagar.
+        var gate = GateFor(request.BusinessId, request.ProductId);
+        await gate.WaitAsync(cancellationToken);
+        Order order;
+        try
         {
-            throw new ReserveNotFoundException("Este producto no está disponible.");
+            var product = await _db.Products.AsNoTracking().IgnoreQueryFilters()
+                .Where(p => p.Id == request.ProductId && p.BusinessId == request.BusinessId)
+                .Select(p => new { p.Id, p.Name, p.Price, p.Stock, p.IsActive })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (product is null)
+            {
+                throw new ReserveNotFoundException("Este producto no está disponible.");
+            }
+
+            if (!product.IsActive)
+            {
+                throw new ReserveBadRequestException("Este producto ya no está disponible.");
+            }
+
+            var now = DateTime.UtcNow;
+            var reservedElsewhere = await _db.Orders.IgnoreQueryFilters()
+                .Where(o => o.BusinessId == request.BusinessId
+                            && o.Status == OrderStatus.Pending
+                            && o.Tags == "apartado"
+                            && (o.ExpiresAt == null || o.ExpiresAt > now))
+                .SelectMany(o => o.Items)
+                .Where(oi => oi.ProductId == request.ProductId)
+                .SumAsync(oi => (int?)oi.Quantity, cancellationToken) ?? 0;
+
+            var available = product.Stock - reservedElsewhere;
+            if (available < request.Quantity)
+            {
+                throw new ReserveBadRequestException(
+                    $"Solo hay {Math.Max(0, available)} disponibles de este producto.");
+            }
+
+            // 3. Calcular fechas con las mismas reglas que un Order manual.
+            var dates = _orderService.CalculateOrderDates(
+                myClient.Type, DateTime.UtcNow);
+
+            // 4. Crear el Order (reusa el patrón de apartado manual).
+            order = new Order
+            {
+                BusinessId = request.BusinessId,
+                ClientId = myClient.Id,
+                Status = OrderStatus.Pending,
+                OrderType = OrderType.PickUp,
+                Subtotal = product.Price * request.Quantity,
+                ShippingCost = 0m,
+                Total = product.Price * request.Quantity,
+                AccessToken = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = dates.ExpiresAt,
+                ScheduledDeliveryDate = dates.ScheduledDeliveryDate,
+                Tags = "apartado",
+            };
+            order.Items.Add(new OrderItem
+            {
+                BusinessId = request.BusinessId,
+                ProductId = product.Id,
+                ProductName = product.Name,
+                Quantity = request.Quantity,
+                UnitPrice = product.Price,
+                LineTotal = product.Price * request.Quantity,
+            });
+
+            _db.Orders.Add(order);
+            await _db.SaveChangesAsync(cancellationToken);
         }
-
-        if (!product.IsActive)
+        finally
         {
-            throw new ReserveBadRequestException("Este producto ya no está disponible.");
+            gate.Release();
         }
-
-        if (product.Stock < request.Quantity)
-        {
-            throw new ReserveBadRequestException(
-                $"Solo hay {product.Stock} disponibles de este producto.");
-        }
-
-        // 3. Calcular fechas con las mismas reglas que un Order manual.
-        var dates = _orderService.CalculateOrderDates(
-            myClient.Type, DateTime.UtcNow);
-
-        // 4. Crear el Order (reusa el patrón de LiveCaptureService.ConfirmCandidate).
-        var order = new Order
-        {
-            BusinessId = request.BusinessId,
-            ClientId = myClient.Id,
-            Status = OrderStatus.Pending,
-            OrderType = OrderType.PickUp,
-            Subtotal = product.Price * request.Quantity,
-            ShippingCost = 0m,
-            Total = product.Price * request.Quantity,
-            AccessToken = Guid.NewGuid().ToString("N"),
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = dates.ExpiresAt,
-            ScheduledDeliveryDate = dates.ScheduledDeliveryDate,
-            Tags = "apartado",
-        };
-        order.Items.Add(new OrderItem
-        {
-            BusinessId = request.BusinessId,
-            ProductId = product.Id,
-            ProductName = product.Name,
-            Quantity = request.Quantity,
-            UnitPrice = product.Price,
-            LineTotal = product.Price * request.Quantity,
-        });
-
-        _db.Orders.Add(order);
-        await _db.SaveChangesAsync(cancellationToken);
 
         // 5. Notificar a la vendedora (push al admin del tenant).
         try
         {
             await _push.SendNotificationToAdminsAsync(
                 title: "Nuevo apartado 💖",
-                message: $"{myClient.Name} apartó {product.Name}",
+                message: $"{myClient.Name} apartó {order.Items.First().ProductName}",
                 url: "/orders",
                 tag: "reserve");
         }
