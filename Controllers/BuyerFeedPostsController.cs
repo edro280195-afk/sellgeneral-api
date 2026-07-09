@@ -11,7 +11,7 @@ namespace EntregasApi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/me/store")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AuthenticatedAccount)]
 [SkipTenantResolution]
 public class BuyerFeedPostsController : ControllerBase
 {

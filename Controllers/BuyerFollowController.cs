@@ -11,7 +11,7 @@ namespace EntregasApi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/me/follow")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AuthenticatedAccount)]
 [SkipTenantResolution]
 public class BuyerFollowController : ControllerBase
 {

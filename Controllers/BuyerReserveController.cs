@@ -13,7 +13,7 @@ namespace EntregasApi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/me/reserve")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AuthenticatedAccount)]
 [SkipTenantResolution]
 public class BuyerReserveController : ControllerBase
 {

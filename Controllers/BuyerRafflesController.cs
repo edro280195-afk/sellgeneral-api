@@ -12,7 +12,7 @@ namespace EntregasApi.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/me/raffles")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AuthenticatedAccount)]
 [SkipTenantResolution]
 public class BuyerRafflesController : ControllerBase
 {
