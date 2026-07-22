@@ -3,6 +3,7 @@ using System;
 using EntregasApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace EntregasApi.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722180819_AddInventoryNfcStorage")]
+    partial class AddInventoryNfcStorage
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1069,73 +1072,6 @@ namespace EntregasApi.Migrations
                         .IsUnique();
 
                     b.ToTable("InventoryItems");
-                });
-
-            modelBuilder.Entity("EntregasApi.Models.InventoryLabelPrint", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("BusinessId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("Copies")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("FailureReason")
-                        .HasMaxLength(800)
-                        .HasColumnType("character varying(800)");
-
-                    b.Property<DateTime?>("HandedOffAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("LabelTemplateVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("MediaSize")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Output")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("RequestedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RequestedBy")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TargetId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BusinessId");
-
-                    b.HasIndex("LabelTemplateVersionId");
-
-                    b.HasIndex("BusinessId", "RequestedAt");
-
-                    b.HasIndex("BusinessId", "Kind", "TargetId");
-
-                    b.ToTable("InventoryLabelPrints");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.InventoryMovement", b =>
@@ -3306,23 +3242,6 @@ namespace EntregasApi.Migrations
                         .IsRequired();
 
                     b.Navigation("InventoryBox");
-                });
-
-            modelBuilder.Entity("EntregasApi.Models.InventoryLabelPrint", b =>
-                {
-                    b.HasOne("EntregasApi.Models.Business", null)
-                        .WithMany()
-                        .HasForeignKey("BusinessId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("EntregasApi.Models.LabelTemplateVersion", "LabelTemplateVersion")
-                        .WithMany()
-                        .HasForeignKey("LabelTemplateVersionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("LabelTemplateVersion");
                 });
 
             modelBuilder.Entity("EntregasApi.Models.InventoryMovement", b =>

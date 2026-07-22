@@ -16,6 +16,7 @@ public static class AuthorizationPolicies
     public const string Scaner = "Scaner";
     public const string PosAccess = "PosAccess";
     public const string RoutesAccess = "RoutesAccess";
+    public const string InventoryAccess = "InventoryAccess";
 }
 
 public sealed class MembershipRequirement : IAuthorizationRequirement

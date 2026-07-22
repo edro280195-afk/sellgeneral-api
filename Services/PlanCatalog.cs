@@ -88,7 +88,8 @@ public static class PlanCatalog
         Feature.TandasRaffles,
         Feature.Pos,
         Feature.FacebookImport,
-        Feature.VipDrops
+        Feature.VipDrops,
+        Feature.LabelPrinting
     ];
 
     private static readonly Feature[] EliteFeatures =
@@ -256,7 +257,8 @@ public static class PlanCatalog
             Feature.TandasRaffles or
             Feature.Pos or
             Feature.FacebookImport or
-            Feature.VipDrops => PlanTiers.Pro,
+            Feature.VipDrops or
+            Feature.LabelPrinting => PlanTiers.Pro,
 
             _ => PlanTiers.Entrada
         };

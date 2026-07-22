@@ -203,6 +203,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthorizationPolicies.RoutesAccess, policy =>
         policy.RequireAuthenticatedUser()
             .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin, MembershipRole.Driver)));
+
+    options.AddPolicy(AuthorizationPolicies.InventoryAccess, policy =>
+        policy.RequireAuthenticatedUser()
+            .AddRequirements(new MembershipRequirement(MembershipRole.Owner, MembershipRole.Admin, MembershipRole.Scaner)));
 });
 
 // ── Services ──
@@ -253,6 +257,8 @@ builder.Services.AddScoped<ILiveAnnouncementService, LiveAnnouncementService>();
 builder.Services.AddScoped<IStorePostsService, StorePostsService>();
 builder.Services.AddScoped<IBuyerFeedPostsService, BuyerFeedPostsService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
+builder.Services.AddScoped<ILabelTemplateDesignValidator, LabelTemplateDesignValidator>();
+builder.Services.AddScoped<LabelTemplateCatalogService>();
 
 // ── SignalR ──
 builder.Services.AddSignalR(options =>

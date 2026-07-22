@@ -1634,8 +1634,9 @@ public class OrdersController : ControllerBase
         for (int i = 0; i < req.Count; i++)
         {
             var packageId = Guid.NewGuid();
-            // Creamos el QR infalible: RB-ORD[Id]-PKG[Primeros 8 chars del Guid]
-            string qrText = $"RB-ORD{order.Id}-PKG{packageId.ToString().Substring(0, 8).ToUpper()}";
+            // QR estable de Nenis: NN-ORD[Id]-PKG[primeros 8 caracteres del Guid].
+            // El valor no depende de la impresora ni de la plantilla elegida.
+            string qrText = $"NN-ORD{order.Id}-PKG{packageId.ToString().Substring(0, 8).ToUpper()}";
 
             var package = new OrderPackage
             {

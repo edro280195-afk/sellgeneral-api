@@ -63,6 +63,21 @@ public class AppDbContext : DbContext
     public DbSet<FcmToken> FcmTokens => Set<FcmToken>();
     public DbSet<OrderRating> OrderRatings => Set<OrderRating>();
 
+    // Inventario físico y tarjetas NFC de bodega
+    public DbSet<InventoryBox> InventoryBoxes => Set<InventoryBox>();
+    public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
+    public DbSet<InventoryCountSession> InventoryCountSessions => Set<InventoryCountSession>();
+    public DbSet<InventoryCountEntry> InventoryCountEntries => Set<InventoryCountEntry>();
+    public DbSet<InventoryLabelPrint> InventoryLabelPrints => Set<InventoryLabelPrint>();
+
+    // Etiquetas versionadas e impresión de bolsas
+    public DbSet<LabelTemplate> LabelTemplates => Set<LabelTemplate>();
+    public DbSet<LabelTemplateVersion> LabelTemplateVersions => Set<LabelTemplateVersion>();
+    public DbSet<LabelAsset> LabelAssets => Set<LabelAsset>();
+    public DbSet<LabelPrintJob> LabelPrintJobs => Set<LabelPrintJob>();
+    public DbSet<LabelPrintJobItem> LabelPrintJobItems => Set<LabelPrintJobItem>();
+
     // Analítica auto-alojada de enlaces de pedido (/o/{token}).
     public DbSet<LinkEvent> LinkEvents => Set<LinkEvent>();
 
@@ -338,6 +353,126 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(p => p.QrCodeValue).IsUnique();
             entity.HasIndex(p => p.OrderId); // Útil cuando pidas "Todas las bolsas de la orden X"
+        });
+
+        modelBuilder.Entity<InventoryBox>(entity =>
+        {
+            entity.HasIndex(box => new { box.BusinessId, box.Code })
+                .IsUnique()
+                .HasFilter("\"IsArchived\" = FALSE");
+            entity.HasIndex(box => box.NfcToken).IsUnique();
+            entity.HasIndex(box => box.NfcTagUid)
+                .IsUnique()
+                .HasFilter("\"NfcTagUid\" IS NOT NULL");
+            entity.HasMany(box => box.Items)
+                .WithOne(item => item.InventoryBox)
+                .HasForeignKey(item => item.InventoryBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(box => box.Movements)
+                .WithOne(movement => movement.InventoryBox)
+                .HasForeignKey(movement => movement.InventoryBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(box => box.CountSessions)
+                .WithOne(session => session.InventoryBox)
+                .HasForeignKey(session => session.InventoryBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InventoryItem>(entity =>
+        {
+            entity.HasIndex(item => item.InventoryBoxId);
+            entity.HasIndex(item => new { item.BusinessId, item.LabelCode }).IsUnique();
+            entity.HasOne(item => item.InventoryBox)
+                .WithMany(box => box.Items)
+                .HasForeignKey(item => item.InventoryBoxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InventoryMovement>(entity =>
+        {
+            entity.HasIndex(movement => new { movement.InventoryBoxId, movement.OccurredAt });
+            entity.HasIndex(movement => movement.TransferGroupId);
+            entity.HasOne(movement => movement.InventoryItem)
+                .WithMany(item => item.Movements)
+                .HasForeignKey(movement => movement.InventoryItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<InventoryCountSession>(entity =>
+        {
+            entity.HasIndex(session => new { session.InventoryBoxId, session.CountedAt });
+            entity.HasMany(session => session.Entries)
+                .WithOne(entry => entry.InventoryCountSession)
+                .HasForeignKey(entry => entry.InventoryCountSessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<InventoryCountEntry>(entity =>
+        {
+            entity.HasIndex(entry => new { entry.InventoryCountSessionId, entry.InventoryItemId }).IsUnique();
+        });
+
+        modelBuilder.Entity<InventoryLabelPrint>(entity =>
+        {
+            entity.HasIndex(print => new { print.BusinessId, print.RequestedAt });
+            entity.HasIndex(print => new { print.BusinessId, print.Kind, print.TargetId });
+            entity.HasOne(print => print.LabelTemplateVersion)
+                .WithMany()
+                .HasForeignKey(print => print.LabelTemplateVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LabelTemplate>(entity =>
+        {
+            entity.HasIndex(template => new { template.BusinessId, template.Name })
+                .IsUnique()
+                .HasFilter("\"IsArchived\" = FALSE");
+            entity.HasIndex(template => new { template.BusinessId, template.Kind, template.MediaSize, template.IsDefault })
+                .IsUnique()
+                .HasFilter("\"IsDefault\" = TRUE AND \"IsArchived\" = FALSE");
+            entity.HasOne(template => template.PublishedVersion)
+                .WithMany()
+                .HasForeignKey(template => template.PublishedVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LabelTemplateVersion>(entity =>
+        {
+            entity.HasIndex(version => new { version.LabelTemplateId, version.VersionNumber }).IsUnique();
+            entity.HasOne(version => version.LabelTemplate)
+                .WithMany(template => template.Versions)
+                .HasForeignKey(version => version.LabelTemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LabelAsset>(entity =>
+        {
+            entity.HasIndex(asset => new { asset.BusinessId, asset.Name })
+                .IsUnique()
+                .HasFilter("\"IsArchived\" = FALSE");
+        });
+
+        modelBuilder.Entity<LabelPrintJob>(entity =>
+        {
+            entity.HasIndex(job => new { job.BusinessId, job.RequestedAt });
+            entity.HasOne(job => job.LabelTemplateVersion)
+                .WithMany()
+                .HasForeignKey(job => job.LabelTemplateVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LabelPrintJobItem>(entity =>
+        {
+            entity.HasIndex(item => new { item.LabelPrintJobId, item.Sequence }).IsUnique();
+            entity.HasIndex(item => new { item.BusinessId, item.OrderPackageId });
+            entity.HasOne(item => item.LabelPrintJob)
+                .WithMany(job => job.Items)
+                .HasForeignKey(item => item.LabelPrintJobId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<OrderPackage>()
+                .WithMany()
+                .HasForeignKey(item => item.OrderPackageId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Proveedores e Inversiones

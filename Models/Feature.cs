@@ -15,6 +15,7 @@ public enum Feature
     Pos,
     FacebookImport,
     VipDrops,
+    LabelPrinting,
     CamiAssistant,
     TrafficRouteOptimization,
     Exports,

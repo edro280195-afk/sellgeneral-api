@@ -81,6 +81,24 @@ public class ShareLandingController : ControllerBase
     }
 
     /// <summary>GET /api/pedido/{accessToken}/teaser — vista previa mínima pública.</summary>
+    [HttpGet("/caja/{businessId:int}/{token}")]
+    public IActionResult InventoryTagLanding(int businessId, string token)
+    {
+        if (businessId <= 0 || string.IsNullOrWhiteSpace(token) || token.Length > 64)
+        {
+            return NotFound();
+        }
+
+        var escapedBusiness = Uri.EscapeDataString(businessId.ToString(CultureInfo.InvariantCulture));
+        var escapedToken = Uri.EscapeDataString(token);
+        var appLink = $"https://app.nenisapp.com/caja/{escapedBusiness}/{escapedToken}";
+        var intent = $"intent://app.nenisapp.com/caja/{escapedBusiness}/{escapedToken}#Intent;scheme=https;package={AndroidPackage};end";
+        var html = $$"""
+        <!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex"/><title>Neni's · Abrir caja</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#fff4f7;color:#2a1622;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center}.card{max-width:360px;background:#fff;padding:30px 24px;border-radius:26px;box-shadow:0 16px 42px #ff007233}.tag{font-size:44px}h1{font-size:22px;margin:12px 0 8px}p{color:#8a7580;line-height:1.45}.open{display:block;margin-top:20px;padding:14px 18px;border-radius:999px;background:#d6336c;color:#fff;text-decoration:none;font-weight:800}</style></head><body><main class="card"><div class="tag">📦</div><h1>Abre esta caja en Neni's</h1><p>Inicia sesión para administrar la mercancía asociada.</p><a id="open-app" class="open" href="{{appLink}}">Abrir Neni's</a></main><script>const button=document.getElementById('open-app');if(/Android/i.test(navigator.userAgent)){button.href={{System.Text.Json.JsonSerializer.Serialize(intent)}};}</script></body></html>
+        """;
+        return Content(html, "text/html; charset=utf-8");
+    }
+
     [HttpGet("/api/pedido/{accessToken}/teaser")]
     [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenRead)]
     public async Task<ActionResult<OrderTeaserDto>> Teaser(string accessToken)
@@ -153,7 +171,7 @@ public class ShareLandingController : ControllerBase
                 apps = Array.Empty<string>(),
                 details = new[]
                 {
-                    new { appID = appId, paths = new[] { "/o/*", "/pedido/*", "/store/*" } },
+                    new { appID = appId, paths = new[] { "/o/*", "/pedido/*", "/store/*", "/caja/*" } },
                 },
             },
         };
