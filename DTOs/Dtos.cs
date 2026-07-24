@@ -203,6 +203,7 @@ public record OrderSummaryDto(
     DateTime? NotifiedAt = null,
     double? ClientLatitude = null,
     double? ClientLongitude = null,
+    int PackageCount = 0,
     // Enlace corto compartible (dominio compartido) que abre el muro de
     // instalación o, si la app está instalada, directamente el pedido.
     string? ShareUrl = null

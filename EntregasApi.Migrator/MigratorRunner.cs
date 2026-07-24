@@ -30,6 +30,19 @@ public sealed class MigratorRunner
             return await preflight.RunAsync(_options, cancellationToken);
         }
 
+        if (_options.Sync)
+        {
+            _logger.LogInformation(
+                "EntregasApi.Migrator - sincronizacion incremental {Mode}",
+                _options.Apply ? "APLICAR" : "REPORTE (sin escrituras)");
+            var synchronizer = new IncrementalSynchronizer(
+                _options,
+                _loggerFactory.CreateLogger<IncrementalSynchronizer>());
+            var passed = await synchronizer.RunAsync(cancellationToken);
+            _logger.LogInformation("Veredicto de sincronizacion: {Verdict}", passed ? "PASS" : "FAIL");
+            return passed ? 0 : 3;
+        }
+
         _logger.LogInformation("EntregasApi.Migrator - modo {Mode}", _options.Verify ? "VERIFY (sin escrituras)" : "COPIA");
 
         if (_options.Verify)

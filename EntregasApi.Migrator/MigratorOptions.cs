@@ -11,6 +11,18 @@ public sealed class MigratorOptions
     /// <summary>Modo: validar accesibilidad y estado de las bases SIN escribir nada.</summary>
     public bool Preflight { get; init; }
 
+    /// <summary>
+    /// Sincroniza de forma incremental la base legacy con el tenant Regi Bazar ya existente.
+    /// Sin <see cref="Apply"/> solamente genera el reporte y no escribe nada.
+    /// </summary>
+    public bool Sync { get; init; }
+
+    /// <summary>Autoriza escrituras únicamente junto con <see cref="Sync"/>.</summary>
+    public bool Apply { get; init; }
+
+    /// <summary>Carpeta local, fuera de Git, del respaldo previo a la sincronización.</summary>
+    public string BackupDirectory { get; init; } = ".migration-backups";
+
     /// <summary>Connection string del origen (single-tenant, READ ONLY en la sesion).</summary>
     public string Source { get; init; } = string.Empty;
 
@@ -46,6 +58,9 @@ public sealed class MigratorOptions
           --preflight            NO escribe. Solo valida accesibilidad y estado de las 3 bases.
                                  Usa --conn-file (default: connectionStrings.txt) para leer ORIGEN,
                                  DESTINO_PROD y DESTINO_ENSAYO.
+          --sync                 Compara la base legacy con el tenant Regi Bazar existente.
+                                 NO escribe salvo que se incluya --apply.
+          --apply                Con --sync: crea un respaldo local y aplica altas/actualizaciones.
 
         Opciones de transformacion:
           --rb-mp-token <token>  Access token de MP de la vendedora. Se encripta con DataProtection
@@ -56,6 +71,7 @@ public sealed class MigratorOptions
                                  se conserva la ruta local y se registra una advertencia por fila.
 
         Opciones de salida:
+          --backup-dir <path>    Carpeta local para el respaldo de --sync --apply.
           --verbose              Log a nivel Debug.
           -h | --help            Muestra esta ayuda.
 
@@ -64,6 +80,11 @@ public sealed class MigratorOptions
           EntregasApi.Migrator --verify ^
               --source "Host=...neondb...;Database=neondb" ^
               --dest   "Host=...neondb...;Database=sellgeneral"
+
+          # Sincronizacion incremental con respaldo local
+          EntregasApi.Migrator --sync --apply ^
+              --source "Host=..." --dest "Host=..." ^
+              --backup-dir ".migration-backups"
 
           # Copia real (una sola vez, en el corte):
           EntregasApi.Migrator ^
@@ -80,8 +101,11 @@ public sealed class MigratorOptions
         string? rbMpToken = null;
         string? evidenceMap = null;
         string? connFile = null;
+        string? backupDirectory = null;
         bool verify = false;
         bool preflight = false;
+        bool sync = false;
+        bool apply = false;
         bool verbose = false;
         bool showHelp = false;
 
@@ -112,6 +136,15 @@ public sealed class MigratorOptions
                 case "--preflight":
                     preflight = true;
                     break;
+                case "--sync":
+                    sync = true;
+                    break;
+                case "--apply":
+                    apply = true;
+                    break;
+                case "--backup-dir":
+                    backupDirectory = RequireValue(args, ref i, "--backup-dir");
+                    break;
                 case "--verbose":
                 case "-v":
                     verbose = true;
@@ -132,6 +165,10 @@ public sealed class MigratorOptions
 
         if (preflight)
         {
+            if (verify || sync || apply)
+            {
+                throw new ArgumentException("--preflight no se puede combinar con --verify, --sync o --apply.");
+            }
             // --preflight no requiere --source/--dest; lee de --conn-file.
             return new MigratorOptions
             {
@@ -153,6 +190,14 @@ public sealed class MigratorOptions
         {
             throw new ArgumentException("Origen y destino son el mismo connection string. Peligro: se sobrescribiria el origen.");
         }
+        if (verify && sync)
+        {
+            throw new ArgumentException("Usa solo uno de --verify o --sync.");
+        }
+        if (apply && !sync)
+        {
+            throw new ArgumentException("--apply requiere --sync.");
+        }
 
         return new MigratorOptions
         {
@@ -162,6 +207,11 @@ public sealed class MigratorOptions
             EvidenceMapPath = evidenceMap,
             Verify = verify,
             Preflight = preflight,
+            Sync = sync,
+            Apply = apply,
+            BackupDirectory = string.IsNullOrWhiteSpace(backupDirectory)
+                ? ".migration-backups"
+                : backupDirectory,
             Verbose = verbose,
         };
     }

@@ -494,6 +494,8 @@ cami-voz-v2.json
 appsettings.json
 appsettings.Development.json
 connectionStrings.txt
+pwd.txt
+.migration-backups/
 .env
 .env.*
 

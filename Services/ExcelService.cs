@@ -317,6 +317,7 @@ public class ExcelService : IExcelService
             NotifiedAt: order.NotifiedAt,
             ClientLatitude: client?.Latitude,
             ClientLongitude: client?.Longitude,
+            PackageCount: order.TotalPackages ?? 0,
             ShareUrl: string.IsNullOrWhiteSpace(ShareLinkBaseUrl)
                 ? null
                 : $"{ShareLinkBaseUrl.TrimEnd('/')}/o/{order.AccessToken}"
