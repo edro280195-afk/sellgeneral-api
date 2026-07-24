@@ -1627,6 +1627,9 @@ public class OrdersController : ControllerBase
         if (order == null) return NotFound("Pedido no encontrado.");
 
         // Averiguamos en qué número de bolsa nos quedamos (por si Miel agrega más días después)
+        // Capturamos el total antes de agregar entidades: EF actualiza la navegación
+        // order.Packages al rastrear cada nueva bolsa.
+        int existingPackageCount = order.Packages.Count;
         int startingNumber = order.Packages.Any() ? order.Packages.Max(p => p.PackageNumber) + 1 : 1;
 
         var newPackages = new List<OrderPackage>();
@@ -1653,7 +1656,7 @@ public class OrdersController : ControllerBase
         }
 
         // Actualizamos las banderas rápidas de la orden principal
-        order.TotalPackages = order.Packages.Count + newPackages.Count;
+        order.TotalPackages = existingPackageCount + newPackages.Count;
         order.IsFullyPacked = true;
         // Si agregamos nuevas bolsas, automáticamente ya no está "completamente cargada"
         order.IsFullyLoaded = false;
