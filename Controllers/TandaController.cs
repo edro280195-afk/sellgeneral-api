@@ -323,4 +323,33 @@ public class TandaController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    [HttpGet("participants/{id}/whatsapp-reminder")]
+    public async Task<IActionResult> GetWhatsAppReminder(Guid id, [FromQuery] int? weekNumber = null)
+    {
+        try
+        {
+            var reminder = await _tandaService.GetWhatsAppReminderAsync(id, weekNumber);
+            return Ok(reminder);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/draw-turns")]
+    public async Task<IActionResult> DrawTurns(Guid id)
+    {
+        try
+        {
+            var tanda = await _tandaService.DrawTurnsAsync(id);
+            return Ok(tanda);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
+

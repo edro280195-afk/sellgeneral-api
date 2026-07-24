@@ -165,6 +165,7 @@ public class TandaPaymentDto
     public string? Notes { get; set; }
 }
 
+
 public class TandaProductDto
 {
     public Guid Id { get; set; }
@@ -188,3 +189,19 @@ public class ReorderParticipantsDto
 {
     public List<Guid> ParticipantIds { get; set; } = new();
 }
+
+public class TandaWhatsAppReminderDto
+{
+    public Guid ParticipantId { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public int WeekNumber { get; set; }
+    public decimal WeeklyAmount { get; set; }
+    public int TurnNumber { get; set; }
+    public bool HasPaidWeek { get; set; }
+    public bool IsWinnerThisWeek { get; set; }
+    public string MessageText { get; set; } = string.Empty;
+    public string WhatsAppUrl { get; set; } = string.Empty;
+}
+
+

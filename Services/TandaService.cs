@@ -447,5 +447,99 @@ public class TandaService : ITandaService
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
     }
+
+    public async Task<TandaWhatsAppReminderDto> GetWhatsAppReminderAsync(Guid participantId, int? weekNumber = null)
+    {
+        var participant = await _db.TandaParticipants
+            .Include(p => p.Client)
+            .Include(p => p.Payments)
+            .Include(p => p.Tanda)
+                .ThenInclude(t => t!.Product)
+            .FirstOrDefaultAsync(p => p.Id == participantId);
+
+        if (participant == null || participant.Tanda == null)
+            throw new Exception("Participante o tanda no encontrada.");
+
+        var tanda = participant.Tanda;
+        int targetWeek = weekNumber ?? TandaWeekCalculator.CalculateCurrentWeek(tanda.StartDate);
+        if (targetWeek < 1) targetWeek = 1;
+
+        decimal amount = participant.WeeklyAmount ?? tanda.WeeklyAmount;
+        bool hasPaid = participant.Payments.Any(p => p.WeekNumber == targetWeek);
+        bool isWinner = participant.AssignedTurn == targetWeek;
+
+        string clientName = participant.Client?.Name ?? participant.CustomerName ?? "Clienta";
+        string phone = participant.Client?.Phone ?? string.Empty;
+        string cleanPhone = new string(phone.Where(char.IsDigit).ToArray());
+        if (!cleanPhone.StartsWith("52") && cleanPhone.Length == 10)
+        {
+            cleanPhone = "52" + cleanPhone;
+        }
+
+        string productName = tanda.Product?.Name ?? tanda.Name;
+        string variantInfo = string.IsNullOrWhiteSpace(participant.Variant) ? "" : $" (Modelo/Variante: {participant.Variant})";
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Hola {clientName} 💕, te escribimos de tu tienda para recordarte tu Tanda de *{productName}*{variantInfo} 🎀.");
+        sb.AppendLine($"📌 *Tu número de turno:* #{participant.AssignedTurn}");
+        sb.AppendLine($"🗓 *Semana en curso:* #{targetWeek} de {tanda.TotalWeeks}");
+        sb.AppendLine($"💵 *Abono semanal:* ${amount:N2} MXN");
+
+        if (hasPaid)
+        {
+            sb.AppendLine("✅ *Estado:* Tu abono de esta semana ya está registrado. ¡Muchas gracias por tu puntualidad!");
+        }
+        else
+        {
+            sb.AppendLine("⏳ *Estado:* Pendiente de abono.");
+            sb.AppendLine("Por favor reenvíanos foto de tu comprobante de transferencia al realizar tu pago 💖.");
+        }
+
+        if (isWinner)
+        {
+            sb.AppendLine("🎁 *¡FELICIDADES! Esta semana te corresponde la ENTREGA de tu tanda.* Nos coordinamos para tu punto de entrega 📦✨.");
+        }
+
+        string messageText = sb.ToString();
+        string encodedMessage = Uri.EscapeDataString(messageText);
+        string waUrl = string.IsNullOrEmpty(cleanPhone)
+            ? $"https://wa.me/?text={encodedMessage}"
+            : $"https://wa.me/{cleanPhone}?text={encodedMessage}";
+
+        return new TandaWhatsAppReminderDto
+        {
+            ParticipantId = participant.Id,
+            CustomerName = clientName,
+            Phone = phone,
+            WeekNumber = targetWeek,
+            WeeklyAmount = amount,
+            TurnNumber = participant.AssignedTurn,
+            HasPaidWeek = hasPaid,
+            IsWinnerThisWeek = isWinner,
+            MessageText = messageText,
+            WhatsAppUrl = waUrl
+        };
+    }
+
+    public async Task<TandaDto> DrawTurnsAsync(Guid tandaId)
+    {
+        var participants = await _db.TandaParticipants
+            .Where(p => p.TandaId == tandaId)
+            .ToListAsync();
+
+        if (!participants.Any())
+            throw new Exception("La tanda no tiene participantes para sortear.");
+
+        var shuffledIds = participants
+            .Select(p => p.Id)
+            .OrderBy(_ => Guid.NewGuid())
+            .ToList();
+
+        await ReorderParticipantsAsync(tandaId, shuffledIds);
+
+        var updatedTanda = await GetTandaByIdAsync(tandaId);
+        return updatedTanda!;
+    }
 }
+
 

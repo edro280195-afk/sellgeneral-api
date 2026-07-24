@@ -26,4 +26,7 @@ public interface ITandaService
     Task<TandaViewDto?> GetTandaByTokenAsync(string token);
     Task DeletePaymentAsync(Guid paymentId);
     Task ReorderParticipantsAsync(Guid tandaId, List<Guid> participantIdsInOrder);
+    Task<TandaWhatsAppReminderDto> GetWhatsAppReminderAsync(Guid participantId, int? weekNumber = null);
+    Task<TandaDto> DrawTurnsAsync(Guid tandaId);
 }
+
