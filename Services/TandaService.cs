@@ -314,12 +314,14 @@ public class TandaService : ITandaService
     public async Task<TandaViewDto?> GetTandaByTokenAsync(string token)
     {
         var tanda = await _db.Tandas
+            .IgnoreQueryFilters()
             .Include(t => t.Product)
             .Include(t => t.Participants)
                 .ThenInclude(p => p.Client)
             .Include(t => t.Participants)
                 .ThenInclude(p => p.Payments)
             .FirstOrDefaultAsync(t => t.AccessToken == token);
+
 
         if (tanda == null) return null;
 

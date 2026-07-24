@@ -77,9 +77,11 @@ public class PublicTandaController : ControllerBase
         }
 
         var tanda = await _db.Tandas
+            .IgnoreQueryFilters()
             .Include(t => t.Participants)
                 .ThenInclude(p => p.Client)
             .FirstOrDefaultAsync(t => t.AccessToken == token);
+
 
         if (tanda == null) return NotFound("Tanda no encontrada.");
 
