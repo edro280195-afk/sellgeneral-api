@@ -530,7 +530,15 @@ public class TandaService : ITandaService
             sb.AppendLine("🎁 *¡FELICIDADES! Esta semana te corresponde la ENTREGA de tu tanda.* Nos coordinamos para tu punto de entrega 📦✨.");
         }
 
+        if (!string.IsNullOrWhiteSpace(tanda.AccessToken))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"🔗 *Sigue tu tanda en vivo y descarga la App:*");
+            sb.AppendLine($"https://app.nenisapp.com/tanda-view/{tanda.AccessToken}");
+        }
+
         string messageText = sb.ToString();
+
         string encodedMessage = Uri.EscapeDataString(messageText);
         string waUrl = string.IsNullOrEmpty(cleanPhone)
             ? $"https://wa.me/?text={encodedMessage}"
