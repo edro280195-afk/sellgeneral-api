@@ -436,8 +436,12 @@ if (useLocalStorage)
     app.Logger.LogInformation("[Storage] Sirviendo uploads locales desde {Path} en /uploads", uploadsPath);
 }
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 // 1. Primero enrutar
 app.UseRouting();
+
 app.UseRateLimiter();
 
 // 2. LUEGO aplicar la política de CORS
@@ -498,6 +502,11 @@ app.UseAuthorization();
 app.UseMiddleware<SubscriptionLockMiddleware>();
 
 // 5. Mapear endpoints
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseAuthorization();
+app.UseMiddleware<SubscriptionLockMiddleware>();
+
+// 5. Mapear endpoints
 app.MapControllers();
 app.MapHub<DeliveryHub>("/hubs/delivery");
 app.MapHub<TrackingHub>("/hubs/tracking");
@@ -505,5 +514,7 @@ app.MapHub<OrderHub>("/hubs/orders");
 app.MapHub<LogisticsHub>("/hubs/logistics");
 app.MapHub<PosHub>("/hubs/pos");
 app.MapHub<LiveHub>("/hubs/live");
+
+app.MapFallbackToFile("index.html");
 
 app.Run();

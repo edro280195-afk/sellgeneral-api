@@ -125,7 +125,33 @@ public class TenantResolutionMiddleware
         AppDbContext db,
         ICurrentTenant currentTenant)
     {
-        if (TryRouteValue(context, "accessToken", out var accessToken))
+        var path = context.Request.Path.Value ?? string.Empty;
+
+        // Extraer token de tandas (/tanda-view/{token} o /api/public-tanda/{token})
+        if (TryRouteValue(context, "token", out var token) ||
+            TryExtractTokenFromPath(path, "/tanda-view/", out token) ||
+            TryExtractTokenFromPath(path, "/api/public-tanda/", out token))
+        {
+            var businessId = await db.Tandas
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(t => t.AccessToken == token)
+                .Select(t => (int?)t.BusinessId)
+                .FirstOrDefaultAsync(context.RequestAborted);
+
+            if (businessId.HasValue)
+            {
+                currentTenant.SetBusiness(businessId.Value);
+            }
+
+            return;
+        }
+
+        // Extraer token de pedidos (/pedido/{token}, /o/{token} o /api/pedido/{token})
+        if (TryRouteValue(context, "accessToken", out var accessToken) ||
+            TryExtractTokenFromPath(path, "/pedido/", out accessToken) ||
+            TryExtractTokenFromPath(path, "/api/pedido/", out accessToken) ||
+            TryExtractTokenFromPath(path, "/o/", out accessToken))
         {
             var businessId = await db.Orders
                 .IgnoreQueryFilters()
@@ -142,31 +168,15 @@ public class TenantResolutionMiddleware
             return;
         }
 
-        if (TryRouteValue(context, "driverToken", out var driverToken))
+        if (TryRouteValue(context, "driverToken", out var driverToken) ||
+            TryExtractTokenFromPath(path, "/repartidor/", out driverToken) ||
+            TryExtractTokenFromPath(path, "/api/driver/", out driverToken))
         {
             var businessId = await db.DeliveryRoutes
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Where(r => r.DriverToken == driverToken)
                 .Select(r => (int?)r.BusinessId)
-                .FirstOrDefaultAsync(context.RequestAborted);
-
-            if (businessId.HasValue)
-            {
-                currentTenant.SetBusiness(businessId.Value);
-            }
-
-            return;
-        }
-
-        if (TryRouteValue(context, "token", out var token) &&
-            context.Request.Path.StartsWithSegments("/api/public-tanda"))
-        {
-            var businessId = await db.Tandas
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .Where(t => t.AccessToken == token)
-                .Select(t => (int?)t.BusinessId)
                 .FirstOrDefaultAsync(context.RequestAborted);
 
             if (businessId.HasValue)
@@ -194,6 +204,20 @@ public class TenantResolutionMiddleware
             }
         }
     }
+
+    private static bool TryExtractTokenFromPath(string path, string prefix, out string token)
+    {
+        token = string.Empty;
+        var idx = path.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return false;
+
+        var start = idx + prefix.Length;
+        var sub = path[start..];
+        var slashIdx = sub.IndexOf('/');
+        token = slashIdx >= 0 ? sub[..slashIdx] : sub;
+        return !string.IsNullOrWhiteSpace(token);
+    }
+
 
     private static bool TryRouteValue(HttpContext context, string key, out string value)
     {
