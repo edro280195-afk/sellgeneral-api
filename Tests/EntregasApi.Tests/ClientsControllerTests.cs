@@ -60,4 +60,28 @@ public class ClientsControllerTests
             detail.Aliases);
         Assert.Equal("https://facebook.com/sofia", detail.FacebookProfileUrl);
     }
+
+    [Fact]
+    public async Task Create_StandaloneClient_CreatesClientWithoutOrder()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = new ClientsController(ctx, null!, null!, null!);
+
+        var req = new CreateClientRequest("Valeria Gomez", "8112345678", "Av. Constitución 100", "https://facebook.com/valeria.gomez");
+        var result = await controller.Create(req);
+
+        var createdResult = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var dto = Assert.IsType<ClientDto>(createdResult.Value);
+
+        Assert.Equal("Valeria Gomez", dto.Name);
+        Assert.Equal("8112345678", dto.Phone);
+        Assert.Equal("https://facebook.com/valeria.gomez", dto.FacebookProfileUrl);
+        Assert.Equal(0, dto.OrdersCount);
+        Assert.Equal(0, dto.TotalSpent);
+
+        var inDb = await ctx.Clients.FindAsync(dto.Id);
+        Assert.NotNull(inDb);
+        Assert.Equal("valeria gomez", inDb!.NormalizedName);
+    }
 }
+

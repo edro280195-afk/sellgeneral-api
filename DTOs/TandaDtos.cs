@@ -27,8 +27,9 @@ public class CreateTandaDto
 
 public class CreateTandaParticipantDto
 {
-    [Required]
     public int CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    public string? FacebookProfileUrl { get; set; }
 
     [Required]
     public int AssignedTurn { get; set; }
@@ -43,8 +44,9 @@ public class AddParticipantDto
     [Required]
     public Guid TandaId { get; set; }
 
-    [Required]
     public int CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    public string? FacebookProfileUrl { get; set; }
 
     [Required]
     public int AssignedTurn { get; set; }
@@ -53,6 +55,7 @@ public class AddParticipantDto
 
     public decimal? WeeklyAmount { get; set; }
 }
+
 public class RegisterPaymentDto
 {
     [Required]

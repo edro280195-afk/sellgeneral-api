@@ -18,6 +18,17 @@ public record UpdateClientRequest(
     string? FacebookProfileUrl = null
 );
 
+public record CreateClientRequest(
+    string Name,
+    string? Phone = null,
+    string? Address = null,
+    string? FacebookProfileUrl = null,
+    string? Tag = null,
+    string? Type = null,
+    string? DeliveryInstructions = null
+);
+
+
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -37,9 +48,86 @@ public class ClientsController : ControllerBase
     }
 
     /// <summary>
+    /// POST /api/clients - Crea una clienta directamente sin requerir un pedido ficticio.
+    /// </summary>
+    [HttpPost]
+    public async Task<ActionResult<ClientDto>> Create([FromBody] CreateClientRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { message = "El nombre de la clienta es obligatorio." });
+
+        var nameTrim = req.Name.Trim();
+        var normalizedName = TextNormalizer.NormalizeName(nameTrim);
+
+        var existing = await _db.Clients
+            .Include(c => c.Orders)
+            .Include(c => c.Aliases)
+            .FirstOrDefaultAsync(c => c.NormalizedName == normalizedName ||
+                (req.FacebookProfileUrl != null && req.FacebookProfileUrl != "" && c.FacebookProfileUrl == req.FacebookProfileUrl));
+
+        if (existing != null)
+        {
+            return Ok(new ClientDto(
+                existing.Id,
+                existing.Name,
+                existing.Phone,
+                existing.Address,
+                existing.Tag.ToString(),
+                existing.Orders.Count(),
+                existing.Orders.Where(o => o.Status != Models.OrderStatus.Canceled).Sum(o => o.Total),
+                existing.Type,
+                existing.DeliveryInstructions,
+                existing.Latitude,
+                existing.Longitude,
+                existing.Aliases.Select(a => a.Alias).ToList(),
+                existing.FacebookProfileUrl
+            ));
+        }
+
+        var client = new Client
+        {
+            Name = nameTrim,
+            NormalizedName = normalizedName,
+            Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim(),
+            NormalizedPhone = string.IsNullOrWhiteSpace(req.Phone) ? null : TextNormalizer.NormalizePhone(req.Phone),
+            Address = string.IsNullOrWhiteSpace(req.Address) ? null : req.Address.Trim(),
+            NormalizedAddress = string.IsNullOrWhiteSpace(req.Address) ? null : TextNormalizer.NormalizeAddress(req.Address),
+            FacebookProfileUrl = string.IsNullOrWhiteSpace(req.FacebookProfileUrl) ? null : req.FacebookProfileUrl.Trim(),
+            Type = string.IsNullOrWhiteSpace(req.Type) ? "Nueva" : req.Type.Trim(),
+            DeliveryInstructions = string.IsNullOrWhiteSpace(req.DeliveryInstructions) ? null : req.DeliveryInstructions.Trim(),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        if (!string.IsNullOrWhiteSpace(req.Tag) && Enum.TryParse<ClientTag>(req.Tag, true, out var tag))
+        {
+            client.Tag = tag;
+        }
+
+        _db.Clients.Add(client);
+        await _db.SaveChangesAsync();
+
+        return CreatedAtAction(nameof(GetById), new { id = client.Id }, new ClientDto(
+            client.Id,
+            client.Name,
+            client.Phone,
+            client.Address,
+            client.Tag.ToString(),
+            0,
+            0,
+            client.Type,
+            client.DeliveryInstructions,
+            client.Latitude,
+            client.Longitude,
+            new List<string>(),
+            client.FacebookProfileUrl
+        ));
+    }
+
+    /// <summary>
     /// POST /api/clients/bulk-geocode - Resuelve lat/lng para los clientes recibidos cuando tienen
     /// dirección pero faltan coordenadas. Persiste el resultado en BD. Devuelve detalle por cliente.
     /// </summary>
+
     [HttpPost("bulk-geocode")]
     public async Task<ActionResult<List<BulkGeocodeResultDto>>> BulkGeocode([FromBody] BulkGeocodeRequest req)
     {

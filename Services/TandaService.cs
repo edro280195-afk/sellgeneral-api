@@ -89,10 +89,39 @@ public class TandaService : ITandaService
         if (isTurnOccupied)
             throw new Exception($"El turno {dto.AssignedTurn} ya está ocupado en esta tanda.");
 
+        int targetCustomerId = dto.CustomerId;
+        if (targetCustomerId <= 0 && !string.IsNullOrWhiteSpace(dto.CustomerName))
+        {
+            var nameTrim = dto.CustomerName.Trim();
+            var normName = TextNormalizer.NormalizeName(nameTrim);
+
+
+            var client = await _db.Clients.FirstOrDefaultAsync(c => c.NormalizedName == normName ||
+                (dto.FacebookProfileUrl != null && dto.FacebookProfileUrl != "" && c.FacebookProfileUrl == dto.FacebookProfileUrl));
+
+            if (client == null)
+            {
+                client = new Client
+                {
+                    Name = nameTrim,
+                    NormalizedName = normName,
+                    FacebookProfileUrl = string.IsNullOrWhiteSpace(dto.FacebookProfileUrl) ? null : dto.FacebookProfileUrl.Trim(),
+                    Type = "Nueva",
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Clients.Add(client);
+                await _db.SaveChangesAsync();
+            }
+            targetCustomerId = client.Id;
+        }
+
+        if (targetCustomerId <= 0)
+            throw new Exception("Debes seleccionar una clienta válida o ingresar su nombre.");
+
         var participant = new TandaParticipant
         {
             TandaId = dto.TandaId,
-            CustomerId = dto.CustomerId,
+            CustomerId = targetCustomerId,
             AssignedTurn = dto.AssignedTurn,
             Status = "Active",
             Variant = dto.Variant,
@@ -104,6 +133,7 @@ public class TandaService : ITandaService
 
         return MapToParticipantDto(participant);
     }
+
 
     public async Task<TandaPaymentDto> RegisterPaymentAsync(RegisterPaymentDto dto)
     {
