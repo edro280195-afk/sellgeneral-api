@@ -7,9 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace EntregasApi.Controllers;
 
 /// <summary>
-/// Lado vendedora: marcar "estoy en vivo ahora mismo" (tiempo real, distinto
-/// del pipeline post-hoc de <see cref="LiveSession"/>). Tenant-scoped,
-/// gateado por el plan (Pro+).
+/// Lado vendedora: marcar "estoy en vivo ahora mismo" (tiempo real).
+/// Tenant-scoped, gateado por el plan (Pro+).
 /// </summary>
 [ApiController]
 [Route("api/business/live-announcements")]

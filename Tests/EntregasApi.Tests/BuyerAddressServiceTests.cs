@@ -199,6 +199,67 @@ public class BuyerAddressServiceTests
         Assert.Null(updated.Address);
     }
 
+    [Fact]
+    public async Task UpdateAddress_ClearLocation_ClearsLatLng()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        var client = new Client
+        {
+            BusinessId = business.Id, AccountId = account.Id, Name = "Ana",
+            NormalizedName = "ana", Latitude = 27.5, Longitude = -99.5,
+        };
+        ctx.Clients.Add(client);
+        await ctx.SaveChangesAsync();
+
+        await new BuyerAddressService(ctx).UpdateAddressAsync(
+            account.Id,
+            client.Id,
+            new UpdateBuyerAddressRequest(ClearLocation: true),
+            CancellationToken.None);
+
+        var db = await ctx.Clients.AsNoTracking().FirstAsync(c => c.Id == client.Id);
+        Assert.Null(db.Latitude);
+        Assert.Null(db.Longitude);
+    }
+
+    [Fact]
+    public async Task UpdateAddress_WithoutClearLocation_KeepsExistingLatLng()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        var client = new Client
+        {
+            BusinessId = business.Id, AccountId = account.Id, Name = "Ana",
+            NormalizedName = "ana", Latitude = 27.5, Longitude = -99.5,
+        };
+        ctx.Clients.Add(client);
+        await ctx.SaveChangesAsync();
+
+        // Sin ClearLocation y sin Latitude/Longitude en el request (ej. la
+        // clienta solo edita las instrucciones de entrega) — el pin
+        // existente no debe tocarse.
+        await new BuyerAddressService(ctx).UpdateAddressAsync(
+            account.Id,
+            client.Id,
+            new UpdateBuyerAddressRequest(DeliveryInstructions: "Tocar el timbre"),
+            CancellationToken.None);
+
+        var db = await ctx.Clients.AsNoTracking().FirstAsync(c => c.Id == client.Id);
+        Assert.Equal(27.5, db.Latitude);
+        Assert.Equal(-99.5, db.Longitude);
+    }
+
     private static Business NewBusiness(string name, string slug, string color) => new()
     {
         Name = name,

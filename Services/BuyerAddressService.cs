@@ -119,8 +119,16 @@ public class BuyerAddressService : IBuyerAddressService
                 ? null
                 : request.Address.Trim();
         }
-        if (request.Latitude.HasValue) client.Latitude = request.Latitude;
-        if (request.Longitude.HasValue) client.Longitude = request.Longitude;
+        if (request.ClearLocation)
+        {
+            client.Latitude = null;
+            client.Longitude = null;
+        }
+        else
+        {
+            if (request.Latitude.HasValue) client.Latitude = request.Latitude;
+            if (request.Longitude.HasValue) client.Longitude = request.Longitude;
+        }
         if (request.DeliveryInstructions != null)
         {
             client.DeliveryInstructions = string.IsNullOrWhiteSpace(request.DeliveryInstructions)

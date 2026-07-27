@@ -130,8 +130,7 @@ public class BuyerStoreService : IBuyerStoreService
             .Select(g => new { Average = g.Average(r => (double)r.Stars), Count = g.Count() })
             .FirstOrDefaultAsync(cancellationToken);
 
-        // "En vivo ahora": aviso en tiempo real (distinto del pipeline
-        // post-hoc de LiveSession de arriba). TTL de 3h, igual que
+        // "En vivo ahora": aviso en tiempo real. TTL de 3h, igual que
         // LiveAnnouncementService.
         var liveNowCutoff = DateTime.UtcNow.AddHours(-3);
         var liveAnnouncement = await _db.LiveAnnouncements.AsNoTracking().IgnoreQueryFilters()

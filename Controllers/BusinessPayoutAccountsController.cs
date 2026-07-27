@@ -2,6 +2,7 @@ using EntregasApi.Data;
 using EntregasApi.DTOs;
 using EntregasApi.Models;
 using EntregasApi.Services;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -80,32 +81,41 @@ public class BusinessPayoutAccountsController : ControllerBase
             .AnyAsync(account => account.IsActive, cancellationToken);
         var shouldBeDefault = request.IsDefault || !hasAccounts;
 
-        if (shouldBeDefault)
+        var gate = shouldBeDefault ? DefaultGateFor(_currentTenant.ActiveBusinessId) : null;
+        if (gate is not null) await gate.WaitAsync(cancellationToken);
+        try
         {
-            await ClearDefaultAsync(cancellationToken);
+            if (shouldBeDefault)
+            {
+                await ClearDefaultAsync(cancellationToken);
+            }
+
+            var now = DateTime.UtcNow;
+            var account = new PayoutAccount
+            {
+                Kind = kind,
+                HolderName = holderName,
+                BankName = bankName,
+                Alias = alias,
+                AccountNumber = accountNumber,
+                MaskedNumber = Mask(accountNumber),
+                NumberLength = accountNumber.Length,
+                Notes = notes,
+                IsDefault = shouldBeDefault,
+                IsActive = true,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+
+            _db.PayoutAccounts.Add(account);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            return Created($"/api/business/payout-accounts/{account.Id}", ToDto(account));
         }
-
-        var now = DateTime.UtcNow;
-        var account = new PayoutAccount
+        finally
         {
-            Kind = kind,
-            HolderName = holderName,
-            BankName = bankName,
-            Alias = alias,
-            AccountNumber = accountNumber,
-            MaskedNumber = Mask(accountNumber),
-            NumberLength = accountNumber.Length,
-            Notes = notes,
-            IsDefault = shouldBeDefault,
-            IsActive = true,
-            CreatedAt = now,
-            UpdatedAt = now,
-        };
-
-        _db.PayoutAccounts.Add(account);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return Created($"/api/business/payout-accounts/{account.Id}", ToDto(account));
+            gate?.Release();
+        }
     }
 
     [HttpPut("{id:int}")]
@@ -178,17 +188,26 @@ public class BusinessPayoutAccountsController : ControllerBase
         account.Kind = kind;
         account.UpdatedAt = DateTime.UtcNow;
 
-        if (request.IsDefault == true)
+        var gate = request.IsDefault == true ? DefaultGateFor(_currentTenant.ActiveBusinessId) : null;
+        if (gate is not null) await gate.WaitAsync(cancellationToken);
+        try
         {
-            await ClearDefaultAsync(cancellationToken);
-            account.IsDefault = true;
-        }
-        else if (request.IsDefault == false)
-        {
-            account.IsDefault = false;
-        }
+            if (request.IsDefault == true)
+            {
+                await ClearDefaultAsync(cancellationToken);
+                account.IsDefault = true;
+            }
+            else if (request.IsDefault == false)
+            {
+                account.IsDefault = false;
+            }
 
-        await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            gate?.Release();
+        }
         await EnsureDefaultAsync(cancellationToken);
 
         return Ok(ToDto(account));
@@ -222,6 +241,23 @@ public class BusinessPayoutAccountsController : ControllerBase
     }
 
     private bool HasBusiness() => _currentTenant.ActiveBusinessId > 0;
+
+    // Candado en proceso por BusinessId (mismo patrón que
+    // BuyerReserveService.ReserveGates): serializa "limpiar el default
+    // vigente y fijar uno nuevo" entre requests concurrentes. Sin esto,
+    // dos requests marcando cuentas distintas como principal casi al mismo
+    // tiempo pueden terminar ambas con IsDefault=true — cada una hace su
+    // propio SELECT-y-limpia (`ClearDefaultAsync`) contra el estado que ve
+    // en ESE momento, sin enterarse de la cuenta que la otra está por
+    // confirmar. `static` a propósito, igual que en BuyerReserveService:
+    // solo protege dentro de este proceso, no entre varias instancias del
+    // API a la vez. Se eligió este candado en vez de una transacción +
+    // `pg_advisory_xact_lock` porque el proveedor InMemory que usa la
+    // suite de tests no soporta transacciones reales.
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> DefaultGates = new();
+
+    private static SemaphoreSlim DefaultGateFor(int businessId) =>
+        DefaultGates.GetOrAdd(businessId, static _ => new SemaphoreSlim(1, 1));
 
     private async Task ClearDefaultAsync(CancellationToken cancellationToken)
     {

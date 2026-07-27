@@ -1425,7 +1425,15 @@ public record RegisterDeviceRequest(string Token, string Platform);
 
 public record StartLiveAnnouncementRequest(string? Title);
 
-public record LiveAnnouncementDto(int Id, string? Title, DateTime StartedAt, bool IsActive);
+public record LiveAnnouncementDto(
+    int Id,
+    string? Title,
+    DateTime StartedAt,
+    bool IsActive,
+    int? CurrentProductId = null,
+    string? CurrentProductName = null,
+    decimal? CurrentProductPrice = null,
+    DateTime? CurrentAnnouncedAt = null);
 
 /// <summary>Producto del catálogo para selectores simples del lado vendedora (ej. anunciar en vivo).</summary>
 public record SellerProductDto(int Id, string Name, decimal Price, int Stock);
@@ -1508,7 +1516,11 @@ public record UpdateBuyerAddressRequest(
     string? Address = null,
     double? Latitude = null,
     double? Longitude = null,
-    string? DeliveryInstructions = null);
+    string? DeliveryInstructions = null,
+    // Un JSON `null` explícito en Latitude/Longitude deserializa igual que
+    // el campo ausente (HasValue == false en ambos casos) — sin esta
+    // bandera no hay forma de distinguir "no lo toques" de "bórralo".
+    bool ClearLocation = false);
 
 /// <summary>
 /// Notificación persistida vista por la compradora. Se devuelve

@@ -114,5 +114,6 @@ public class LiveAnnouncementService : ILiveAnnouncementService
     }
 
     private static LiveAnnouncementDto ToDto(LiveAnnouncement a) =>
-        new(a.Id, a.Title, a.StartedAt, a.EndedAt is null);
+        new(a.Id, a.Title, a.StartedAt, a.EndedAt is null,
+            a.CurrentProductId, a.CurrentProductName, a.CurrentProductPrice, a.CurrentAnnouncedAt);
 }

@@ -143,6 +143,19 @@ public class TandaService : ITandaService
         if (participant == null)
             throw new Exception("Participante no encontrado.");
 
+        // Sin este chequeo, un doble-tap en "Registrar pago" (plausible con
+        // los cold-starts de Render de hasta 60s) crea dos TandaPayment
+        // para la misma semana: no hay índice único en la tabla, y
+        // `collectedAmount` los suma ambos sin dedup, inflando el total
+        // cobrado sin forma de corregirlo desde la app (borrar quita solo
+        // uno). El guard real de doble-tap vive en el front (`_run` en
+        // seller_tandas_command_screen.dart); esto es el respaldo del lado
+        // servidor.
+        var alreadyPaid = await _db.TandaPayments.AnyAsync(p =>
+            p.ParticipantId == dto.ParticipantId && p.WeekNumber == dto.WeekNumber);
+        if (alreadyPaid)
+            throw new Exception($"Ya hay un pago registrado para la semana {dto.WeekNumber} de esta participante.");
+
         var payment = new TandaPayment
         {
             ParticipantId = dto.ParticipantId,

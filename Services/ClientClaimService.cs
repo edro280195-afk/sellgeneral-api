@@ -334,7 +334,19 @@ public class ClientClaimService : IClientClaimService
                     x.c.Id,
                     x.c.BusinessId,
                     x.c.Name,
-                    LinkedBy = a != null ? a.Mode.ToString() : "Unknown",
+                    // Mismas constantes kebab-case que ClaimByOrderTokenAsync/
+                    // ClaimByPhoneMatchAsync devuelven al reclamar (líneas 108,
+                    // 142, 277, 311) — antes esto mandaba `a.Mode.ToString()`
+                    // ("OrderToken"/"PhoneMatch", PascalCase), que
+                    // `account_models.dart.linkedByLabel` nunca reconocía y
+                    // caía siempre al genérico "Vinculada".
+                    LinkedBy = a == null
+                        ? "unknown"
+                        : a.Mode == ClientClaimMode.OrderToken
+                            ? "order-token"
+                            : a.Mode == ClientClaimMode.PhoneMatch
+                                ? "phone-match"
+                                : "manual",
                     ClaimedAt = a != null ? (DateTime?)a.ClaimedAt : null,
                 })
             .ToListAsync(cancellationToken);

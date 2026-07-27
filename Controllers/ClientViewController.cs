@@ -360,11 +360,21 @@ public class ClientViewController : ControllerBase
 
         // Intentamos obtener el delivery asociado para filtrar los mensajes
         var delivery = await _db.Deliveries.FirstOrDefaultAsync(d => d.OrderId == order.Id);
-        
-        // Obtenemos los mensajes asociados a la entrega o a la ruta (si existe)
+
+        // Solo mensajes de ESTA entrega — nunca "toda la ruta". El filtro
+        // anterior (`DeliveryRouteId == order.DeliveryRouteId` sin exigir
+        // DeliveryId) devolvía también el chat de OTRAS clientas en la
+        // misma ruta y el chat interno chofer↔admin (DeliveryId null,
+        // ver RoutesController.SendAdminMessage) a cualquiera con el token
+        // de un solo pedido. `order.DeliveryRouteId` y el `Delivery` de la
+        // orden siempre se crean juntos (RoutesController.AddOrderToRoute/
+        // Recompose), así que si hay ruta asignada, `delivery` no es null;
+        // si todavía no hay delivery, no hay nada que mostrarle a la
+        // clienta (el chat siempre es por entrega, nunca a nivel ruta).
+        if (delivery == null) return Ok(Array.Empty<object>());
+
         var msgs = await _db.ChatMessages
-            .Where(m => (m.DeliveryRouteId != null && m.DeliveryRouteId == order.DeliveryRouteId) || 
-                        (delivery != null && m.DeliveryId == delivery.Id))
+            .Where(m => m.DeliveryId == delivery.Id)
             .OrderBy(m => m.Timestamp)
             .Select(m => new {
                 id = m.Id,
