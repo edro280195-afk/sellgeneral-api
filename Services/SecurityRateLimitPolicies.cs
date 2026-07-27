@@ -12,4 +12,5 @@ public static class SecurityRateLimitPolicies
     public const string PushSubscribe = "push-subscribe";
     public const string LinkEvents = "link-events";
     public const string Webhook = "webhook";
+    public const string MetaLiveProbe = "meta-live-probe";
 }

@@ -122,6 +122,8 @@ builder.Services.AddRateLimiter(options =>
         FixedWindow(context, SecurityRateLimitPolicies.LinkEvents, 120, TimeSpan.FromMinutes(1)));
     options.AddPolicy(SecurityRateLimitPolicies.Webhook, context =>
         FixedWindow(context, SecurityRateLimitPolicies.Webhook, 240, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.MetaLiveProbe, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.MetaLiveProbe, 3, TimeSpan.FromMinutes(1)));
 });
 
 // ── Plataforma MP: suscripciones (Fase 1.3) ──
@@ -254,6 +256,7 @@ builder.Services.AddScoped<IBuyerNotificationService, BuyerNotificationService>(
 builder.Services.AddScoped<IBuyerFollowService, BuyerFollowService>();
 builder.Services.AddScoped<IBuyerDeviceService, BuyerDeviceService>();
 builder.Services.AddScoped<ILiveAnnouncementService, LiveAnnouncementService>();
+builder.Services.AddScoped<IMetaLiveProbeService, MetaLiveProbeService>();
 builder.Services.AddScoped<IStorePostsService, StorePostsService>();
 builder.Services.AddScoped<IBuyerFeedPostsService, BuyerFeedPostsService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();
