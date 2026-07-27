@@ -583,6 +583,17 @@ public class TandaService : ITandaService
         if (!participants.Any())
             throw new Exception("La tanda no tiene participantes para sortear.");
 
+        var hasStartedOperations = await _db.TandaParticipants
+            .AnyAsync(p =>
+                p.TandaId == tandaId &&
+                (p.Payments.Any() || p.IsDelivered || p.DeliveryDate != null));
+
+        if (hasStartedOperations)
+        {
+            throw new InvalidOperationException(
+                "No se pueden sortear los turnos porque la tanda ya tiene pagos registrados o entregas realizadas.");
+        }
+
         var shuffledIds = participants
             .Select(p => p.Id)
             .OrderBy(_ => Guid.NewGuid())
