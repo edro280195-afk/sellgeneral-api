@@ -122,11 +122,14 @@ public class RoutesController : ControllerBase
         List<string> orderedIds;
         if (req.PreOptimized)
         {
-            // El orden recibido en req.OrderIds + req.TandaParticipantIds es el deseado.
-            orderedIds = distinctOrderIds.Select(i => $"order:{i}")
-                .Concat(distinctTandaIds.Select(g => $"tanda:{g}"))
-                .Where(id => allStops.Any(s => s.Id == id))
-                .ToList();
+            // OrderedStopIds conserva también el intercalado entre pedidos y
+            // tandas. Si un cliente anterior no lo envía, mantenemos el orden
+            // legado (pedidos y después tandas) sin romper compatibilidad.
+            var preferredOrder = req.OrderedStopIds is { Count: > 0 }
+                ? req.OrderedStopIds
+                : distinctOrderIds.Select(i => $"order:{i}")
+                    .Concat(distinctTandaIds.Select(g => $"tanda:{g}"));
+            orderedIds = RouteStopOrderResolver.Resolve(allStops, preferredOrder);
         }
         else
         {

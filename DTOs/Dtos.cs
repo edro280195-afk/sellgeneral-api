@@ -291,11 +291,16 @@ public record CreateRouteRequest(
     bool Force = false,
     List<Guid>? TandaParticipantIds = null,
     /// <summary>
-    /// Si es true, OrderIds y TandaParticipantIds vienen en el orden óptimo deseado
-    /// (típicamente desde un preview del frontend) y se respeta sin re-optimizar.
+    /// Si es true, se respeta OrderedStopIds (o el orden legado de las listas
+    /// separadas cuando no viene) sin volver a optimizar.
     /// Si es false (default), el backend re-optimiza usando Google Routes API.
     /// </summary>
-    bool PreOptimized = false
+    bool PreOptimized = false,
+    /// <summary>
+    /// Secuencia intercalada de paradas ya optimizadas, con identificadores
+    /// "order:{id}" y "tanda:{id}". Solo se usa cuando PreOptimized es true.
+    /// </summary>
+    List<string>? OrderedStopIds = null
 );
 
 public record SkippedStopDto(
