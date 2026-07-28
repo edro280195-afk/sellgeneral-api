@@ -18,7 +18,9 @@ public interface IOrderService
     /// <summary>
     /// Calculates both Expiration and Scheduled Delivery Date.
     /// If manualDate is provided: ExpiresAt = manualDate + 2 days.
-    /// If not: ScheduledDeliveryDate = next Sunday, ExpiresAt = Sunday + 2 days.
+    /// If not: ScheduledDeliveryDate = next Sunday (Nueva) or second Sunday
+    /// (Frecuente/VIP), ExpiresAt = that Sunday + 2 days. If createdAt itself
+    /// falls on a Sunday, it counts as already past and rolls to the following one.
     /// </summary>
     (DateTime ExpiresAt, DateTime ScheduledDeliveryDate) CalculateOrderDates(string clientType, DateTime createdAt, DateTime? manualDate = null);
 }

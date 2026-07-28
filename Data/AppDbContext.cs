@@ -262,11 +262,13 @@ public class AppDbContext : DbContext
 
         // --- RELACIONES & CONFIGURACIONES ---
 
-        // One-to-one: Order -> Delivery (OrderId es nullable para soportar deliveries de tanda)
+        // One-to-many: Order -> Deliveries (OrderId es nullable para soportar deliveries de tanda).
+        // Un pedido puede acumular varios intentos de entrega a lo largo del tiempo; el
+        // fallido se queda ligado a su ruta original y uno nuevo se crea para el reintento.
         modelBuilder.Entity<Order>()
-            .HasOne(o => o.Delivery)
+            .HasMany(o => o.Deliveries)
             .WithOne(d => d.Order)
-            .HasForeignKey<Delivery>(d => d.OrderId)
+            .HasForeignKey(d => d.OrderId)
             .IsRequired(false);
 
         // Delivery -> TandaParticipant (many-to-one opcional; XOR con OrderId)

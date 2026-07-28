@@ -649,7 +649,11 @@ public class DriverController : ControllerBase
         delivery.Status = DeliveryStatus.NotDelivered;
         delivery.FailureReason = req.Reason;
         delivery.Notes = req.Notes;
-        // En orden regular: marcamos también la Order. En tanda no tocamos IsDelivered (sigue false).
+        // En orden regular: marcamos también la Order y la dejamos en NotDelivered (no la
+        // liberamos automáticamente) para que siga apareciendo en el worklist de "necesita
+        // atención". Se libera explícitamente vía DeliveryRetryPolicy.ReleaseForRetry cuando
+        // alguien prepara el reintento (botón "Preparar reintento" / PATCH status a Pending).
+        // En tanda no tocamos IsDelivered (sigue false).
         if (delivery.Order != null)
             delivery.Order.Status = Models.OrderStatus.NotDelivered;
 
@@ -746,22 +750,26 @@ public class DriverController : ControllerBase
 
         // ── Auto-conciliación de bolsas sin resolver ──
         // Carga todos los paquetes que aún estén en estado Loaded (ni entregados ni devueltos)
+        // Deliveries de tipo Order que pertenecen a ESTA ruta (un pedido puede tener
+        // varias Deliveries históricas de rutas anteriores; solo nos interesa la de hoy).
+        var routeOrderDeliveries = await _db.Deliveries
+            .Where(d => d.DeliveryRouteId == routeId && d.Kind == DeliveryKind.Order && d.OrderId != null)
+            .ToListAsync();
+        var deliveryByOrderId = routeOrderDeliveries.ToDictionary(d => d.OrderId!.Value);
+        var orderIdsInRoute = deliveryByOrderId.Keys.ToList();
+
         var loadedPackages = await _db.OrderPackages
-            .Include(p => p.Order)
-                .ThenInclude(o => o.Delivery)
-            .Where(p => p.Status == PackageTrackingStatus.Loaded
-                && p.Order.Delivery != null
-                && p.Order.Delivery.DeliveryRouteId == routeId)
+            .Where(p => p.Status == PackageTrackingStatus.Loaded && orderIdsInRoute.Contains(p.OrderId))
             .ToListAsync();
 
         int autoReturned = 0;
         foreach (var pkg in loadedPackages)
         {
-            var deliveryStatus = pkg.Order.Delivery!.Status;
-            if (deliveryStatus == DeliveryStatus.Delivered)
+            var delivery = deliveryByOrderId[pkg.OrderId];
+            if (delivery.Status == DeliveryStatus.Delivered)
             {
                 pkg.Status = PackageTrackingStatus.Delivered;
-                pkg.DeliveredAt = pkg.Order.Delivery.DeliveredAt ?? DateTime.UtcNow;
+                pkg.DeliveredAt = delivery.DeliveredAt ?? DateTime.UtcNow;
             }
             else
             {

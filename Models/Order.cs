@@ -48,7 +48,13 @@ public class Order : ITenantOwned
     /// <summary>Marca cuándo se le envió el enlace del pedido a la clienta (Messenger). Null = aún no notificada.</summary>
     public DateTime? NotifiedAt { get; set; }
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
-    public Delivery? Delivery { get; set; }
+
+    /// <summary>
+    /// Historial de intentos de entrega. Un pedido puede acumular varios (uno por
+    /// cada ruta a la que se asignó); el intento fallido conserva su motivo/fotos/firma
+    /// ligado a su ruta original — ver ADR reintentos-de-entrega-con-historial.
+    /// </summary>
+    public ICollection<Delivery> Deliveries { get; set; } = new List<Delivery>();
     public OrderType OrderType { get; set; } = OrderType.Delivery;
     public DateTime? PostponedAt { get; set; }
     public string? PostponedNote { get; set; }

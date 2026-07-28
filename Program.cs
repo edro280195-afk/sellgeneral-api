@@ -263,6 +263,10 @@ builder.Services.AddScoped<IEntitlementService, EntitlementService>();
 builder.Services.AddScoped<ILabelTemplateDesignValidator, LabelTemplateDesignValidator>();
 builder.Services.AddScoped<LabelTemplateCatalogService>();
 
+// Recordatorios proactivos (pedidos por vencer, saldos, pulso semanal) — un scope de
+// tenant propio por Business en cada pasada, ver AdminNotificationsService.
+builder.Services.AddHostedService<AdminNotificationsService>();
+
 // ── SignalR ──
 builder.Services.AddSignalR(options =>
 {

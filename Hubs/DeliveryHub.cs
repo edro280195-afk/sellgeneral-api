@@ -82,8 +82,8 @@ public class DeliveryHub : TenantAwareHubBase
         var driverToken = await Db.Orders
             .AsNoTracking()
             .IgnoreQueryFilters()
-            .Where(o => o.AccessToken == accessToken && o.Delivery != null && o.Delivery.DeliveryRoute != null)
-            .Select(o => o.Delivery!.DeliveryRoute!.DriverToken)
+            .Where(o => o.AccessToken == accessToken && o.DeliveryRoute != null)
+            .Select(o => o.DeliveryRoute!.DriverToken)
             .FirstOrDefaultAsync();
 
         if (!string.IsNullOrEmpty(driverToken))

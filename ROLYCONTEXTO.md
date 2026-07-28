@@ -183,7 +183,8 @@ Implementa el motor de entitlements en EntregasApi (.NET 8). Define qué desbloq
    - Trialing y TrialEndsAt>UtcNow -> features de "Pro" (la prueba da Pro).
    - Active -> features de su PlanTier.
    - Trialing y TrialEndsAt<=UtcNow, o Expired, o PastDue tras gracia -> BLOQUEADO: cero features de negocio (ver 1.2).
-   Métodos: HasFeature(Feature), GetLimit(LimitKey), EffectivePlanTier(). Evaluación PEREZOSA por request (NO hay scheduler en el proyecto — no agregues uno).
+   Métodos: HasFeature(Feature), GetLimit(LimitKey), EffectivePlanTier(). Evaluación PEREZOSA por request — específicamente para vencimiento/plan de suscripción NO agregues un scheduler, se recalcula solo cuando llega la petición.
+   (Nota: esta regla es solo para evaluación de entitlements/suscripción. SÍ existe un BackgroundService en el proyecto — AdminNotificationsService, agregado a propósito — para recordatorios de pedidos/saldos y el pulso semanal; no es una excepción a la regla de arriba, son cosas distintas.)
 6) Enforcement:
    - Atributo [RequiresFeature(Feature.X)] como IAsyncActionFilter: si !HasFeature -> 402 Payment Required, body { error:"feature_locked", feature:"X", requiredPlan:"Pro|Elite" }.
    - Fuera del borde de controller (push de EN VIVO, alta de repartidor N+1) usa IEntitlementService directo. Helper EnsureWithinLimit(LimitKey, currentCount).

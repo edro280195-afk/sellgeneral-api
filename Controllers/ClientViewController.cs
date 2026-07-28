@@ -55,7 +55,7 @@ public class ClientViewController : ControllerBase
             .Include(o => o.Items)
             .Include(o => o.DeliveryRoute)
             .Include(o => o.Payments)
-            .Include(o => o.Delivery).ThenInclude(d => d!.Evidences)
+            .Include(o => o.Deliveries).ThenInclude(d => d.Evidences)
             .FirstOrDefaultAsync(o => o.AccessToken == accessToken);
 
         if (order == null)
@@ -166,6 +166,10 @@ public class ClientViewController : ControllerBase
             }
         }
 
+        // El intento de entrega más reciente (puede ser de una ruta anterior si el
+        // pedido está esperando reintento): ahí vive la firma/evidencia/motivo de falla.
+        var latestDelivery = order.Deliveries?.OrderByDescending(d => d.Id).FirstOrDefault();
+
         // --- LIMPIEZA DE TIPO DE CLIENTA ---
         string finalType = "Nueva";
         if (order.Client != null && !string.IsNullOrEmpty(order.Client.Type) && order.Client.Type != "None")
@@ -204,15 +208,15 @@ public class ClientViewController : ControllerBase
             DeliveryInstructions: order.DeliveryInstructions,
             ExpiresAt: order.ExpiresAt,
             ScheduledDeliveryDate: order.ScheduledDeliveryDate,
-            EvidenceUrls: order.Delivery?.Evidences?
+            EvidenceUrls: latestDelivery?.Evidences?
                 .Where(e => e.Type == EvidenceType.DeliveryProof)
                 .Select(e => e.ImagePath).ToList(),
-            SignatureSvg: order.Delivery?.SignatureSvg,
-            SignedByName: order.Delivery?.SignedByName,
-            SignedAt: order.Delivery?.SignedAt,
-            FailureReason: order.Delivery?.FailureReason,
-            DeliveredAt: order.Delivery?.DeliveredAt,
-            NonDeliveryEvidenceUrls: order.Delivery?.Evidences?
+            SignatureSvg: latestDelivery?.SignatureSvg,
+            SignedByName: latestDelivery?.SignedByName,
+            SignedAt: latestDelivery?.SignedAt,
+            FailureReason: latestDelivery?.FailureReason,
+            DeliveredAt: latestDelivery?.DeliveredAt,
+            NonDeliveryEvidenceUrls: latestDelivery?.Evidences?
                 .Where(e => e.Type == EvidenceType.NonDeliveryProof)
                 .Select(e => e.ImagePath).ToList(),
             MercadoPagoPublicKey: mercadoPagoPublicKey,

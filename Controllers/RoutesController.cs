@@ -100,6 +100,20 @@ public class RoutesController : ControllerBase
             });
         }
 
+        if (!req.Force)
+        {
+            var withoutPackages = orders.Where(o => !o.TotalPackages.HasValue).ToList();
+            if (withoutPackages.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    code = "PACKAGES_REQUIRED",
+                    message = "Hay pedidos sin bolsas resueltas. Genera sus bolsas o confirma que no llevan antes de armar la ruta.",
+                    orders = withoutPackages.Select(o => new { id = o.Id, clientName = o.Client?.Name, totalPackages = o.TotalPackages })
+                });
+            }
+        }
+
         var activeDriverCount = await _db.DeliveryRoutes.CountAsync(r =>
             r.Status == RouteStatus.Pending || r.Status == RouteStatus.Active);
         try
@@ -162,28 +176,7 @@ public class RoutesController : ControllerBase
                     var order = orders.FirstOrDefault(o => o.Id == orderId);
                     if (order == null) continue;
 
-                    order.DeliveryRoute = route;
-                    order.Status = Models.OrderStatus.InRoute;
-
-                    var delivery = order.Delivery;
-                    if (delivery == null)
-                    {
-                        _db.Deliveries.Add(new Delivery
-                        {
-                            Order = order,
-                            Kind = DeliveryKind.Order,
-                            DeliveryRoute = route,
-                            SortOrder = sortOrder++,
-                            Status = DeliveryStatus.Pending
-                        });
-                    }
-                    else
-                    {
-                        delivery.DeliveryRoute = route;
-                        delivery.Kind = DeliveryKind.Order;
-                        delivery.SortOrder = sortOrder++;
-                        delivery.Status = DeliveryStatus.Pending;
-                    }
+                    _db.Deliveries.Add(DeliveryRetryPolicy.CreateForRoute(order, route, sortOrder++));
                     createdOrderClientIds.Add(order.ClientId);
                 }
                 else if (stopId.StartsWith("tanda:"))
@@ -337,7 +330,6 @@ public class RoutesController : ControllerBase
         var ordersInDb = orderIds.Count > 0
             ? await _db.Orders
                 .Include(o => o.Client)
-                .Include(o => o.Delivery)
                 .Where(o => orderIds.Contains(o.Id))
                 .ToListAsync()
             : new List<Order>();
@@ -737,6 +729,15 @@ public class RoutesController : ControllerBase
 
         if (order.DeliveryRouteId != null) return BadRequest("La orden ya tiene una ruta asignada.");
 
+        if (!order.TotalPackages.HasValue)
+        {
+            return BadRequest(new
+            {
+                code = "PACKAGES_REQUIRED",
+                message = "Este pedido no tiene bolsas resueltas. Genera sus bolsas o confirma que no lleva antes de agregarlo a la ruta."
+            });
+        }
+
         order.DeliveryRouteId = id;
         order.Status = Models.OrderStatus.InRoute;
 
@@ -1010,7 +1011,7 @@ public class RoutesController : ControllerBase
         var skipped = new List<SkippedStopDto>();
 
         var ordersInDb = distinctOrderIds.Count > 0
-            ? await _db.Orders.Include(o => o.Client).Include(o => o.Delivery)
+            ? await _db.Orders.Include(o => o.Client)
                 .Where(o => distinctOrderIds.Contains(o.Id))
                 .ToListAsync()
             : new List<Order>();
