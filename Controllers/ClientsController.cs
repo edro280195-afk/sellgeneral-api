@@ -174,10 +174,12 @@ public class ClientsController : ControllerBase
     [HttpGet("address-suggestions")]
     public async Task<ActionResult<IReadOnlyList<AddressSuggestion>>> AddressSuggestions(
         [FromQuery] string? input,
+        [FromQuery] string? sessionToken,
         CancellationToken cancellationToken)
     {
         var suggestions = await _geocoding.AutocompleteAsync(
             input ?? string.Empty,
+            sessionToken,
             cancellationToken);
         return Ok(suggestions);
     }
@@ -185,10 +187,12 @@ public class ClientsController : ControllerBase
     [HttpGet("address-details")]
     public async Task<ActionResult<AddressDetails>> AddressDetails(
         [FromQuery] string? placeId,
+        [FromQuery] string? sessionToken,
         CancellationToken cancellationToken)
     {
         var details = await _geocoding.GetPlaceDetailsAsync(
             placeId ?? string.Empty,
+            sessionToken,
             cancellationToken);
         return details == null ? NotFound() : Ok(details);
     }

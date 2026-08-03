@@ -28,9 +28,11 @@ public interface IGeocodingService
 
     Task<IReadOnlyList<AddressSuggestion>> AutocompleteAsync(
         string input,
+        string? sessionToken = null,
         CancellationToken ct = default);
 
     Task<AddressDetails?> GetPlaceDetailsAsync(
         string placeId,
+        string? sessionToken = null,
         CancellationToken ct = default);
 }

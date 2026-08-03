@@ -8,6 +8,7 @@ namespace EntregasApi.Services;
 public class RouteOptimizerService : IRouteOptimizerService
 {
     private const int MaxGoogleStops = 26; // origen + destino + hasta 25 intermedios en Google Routes.
+    private const int MaxBasicGeometryStops = 11; // origen + destino + hasta 10 intermedios para el nivel Essentials.
 
     private readonly IEntitlementService _entitlements;
     private readonly IHttpClientFactory _httpFactory;
@@ -107,7 +108,7 @@ public class RouteOptimizerService : IRouteOptimizerService
         if (withCoords.Count == 0)
             return new OptimizedRoute(orderedIds, 0, 0, "no-road-geometry");
 
-        if (withCoords.Count > MaxGoogleStops)
+        if (withCoords.Count > MaxBasicGeometryStops)
             return new OptimizedRoute(orderedIds, 0, 0, "too-many-stops");
 
         var result = await TryComputeGoogleRouteAsync(
@@ -302,7 +303,7 @@ public class RouteOptimizerService : IRouteOptimizerService
             destination = ToWaypoint(destination),
             intermediates = intermediates.Select(ToWaypoint).ToList(),
             travelMode = "DRIVE",
-            routingPreference = "TRAFFIC_AWARE",
+            routingPreference = "TRAFFIC_UNAWARE",
             optimizeWaypointOrder = false,
             polylineQuality = "OVERVIEW"
         };

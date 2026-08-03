@@ -72,6 +72,7 @@ public class GeocodingService : IGeocodingService
 
     public async Task<IReadOnlyList<AddressSuggestion>> AutocompleteAsync(
         string input,
+        string? sessionToken = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(input) || input.Trim().Length < 3)
@@ -84,12 +85,12 @@ public class GeocodingService : IGeocodingService
         try
         {
             var business = await _currentBusiness.GetAsync(ct);
-            var requestBody = new
+            var requestBody = new Dictionary<string, object?>
             {
-                input = input.Trim(),
-                includedRegionCodes = new[] { "mx" },
-                languageCode = "es",
-                locationBias = new
+                ["input"] = input.Trim(),
+                ["includedRegionCodes"] = new[] { "mx" },
+                ["languageCode"] = "es",
+                ["locationBias"] = new
                 {
                     circle = new
                     {
@@ -102,6 +103,8 @@ public class GeocodingService : IGeocodingService
                     }
                 }
             };
+            if (!string.IsNullOrWhiteSpace(sessionToken))
+                requestBody["sessionToken"] = sessionToken.Trim();
 
             var http = _httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(8);
@@ -160,6 +163,7 @@ public class GeocodingService : IGeocodingService
 
     public async Task<AddressDetails?> GetPlaceDetailsAsync(
         string placeId,
+        string? sessionToken = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(placeId)) return null;
@@ -174,9 +178,10 @@ public class GeocodingService : IGeocodingService
                 : $"places/{placeId}";
             var http = _httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(8);
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"https://places.googleapis.com/v1/{resource}");
+            var url = $"https://places.googleapis.com/v1/{resource}";
+            if (!string.IsNullOrWhiteSpace(sessionToken))
+                url += $"?sessionToken={WebUtility.UrlEncode(sessionToken.Trim())}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("X-Goog-Api-Key", apiKey);
             request.Headers.Add("X-Goog-FieldMask", "formattedAddress,location");
 
