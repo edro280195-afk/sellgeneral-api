@@ -209,7 +209,9 @@ public record OrderSummaryDto(
     string? ShareUrl = null,
     // Fusión de pedidos: si no-nulo, este pedido quedó fusionado dentro de otro.
     int? MergedIntoOrderId = null,
-    DateTime? MergedAt = null
+    DateTime? MergedAt = null,
+    int OrderNumber = 0,
+    int? MergedIntoOrderNumber = null
 );
 
 /// <summary>POST /api/orders/{targetOrderId}/merge — fusiona sourceOrderId dentro del pedido de la URL.</summary>
@@ -1222,6 +1224,7 @@ public record BuyerStoreDto(
 
 public record BuyerActiveOrderDto(
     int OrderId,
+    int OrderNumber,
     int BusinessId,
     string BusinessName,
     string BrandPrimaryColor,
@@ -1232,6 +1235,7 @@ public record BuyerActiveOrderDto(
 
 public record BuyerRecentOrderDto(
     int OrderId,
+    int OrderNumber,
     int BusinessId,
     string BusinessName,
     string BrandPrimaryColor,
@@ -1266,6 +1270,7 @@ public static class BuyerOrderFilter
 /// </summary>
 public record BuyerOrderDto(
     int OrderId,
+    int OrderNumber,
     int BusinessId,
     string BusinessName,
     string BrandPrimaryColor,

@@ -4,6 +4,7 @@ using EntregasApi.Services;
 using Microsoft.AspNetCore.DataProtection;
 using System.Linq.Expressions;
 using System.Security.Cryptography;
+using System.Data;
 
 namespace EntregasApi.Data;
 
@@ -197,6 +198,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Order>()
             .HasIndex(o => o.AccessToken)
             .IsUnique();
+
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => new { o.BusinessId, o.OrderNumber })
+            .IsUnique()
+            .HasDatabaseName("IX_Orders_BusinessId_OrderNumber");
 
         modelBuilder.Entity<DeliveryRoute>()
             .HasIndex(r => r.DriverToken)
@@ -710,15 +716,41 @@ public class AppDbContext : DbContext
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         StampTenantOwnedEntities();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        var pendingOrders = PendingOrdersWithoutNumber();
+        var shouldCloseConnection = OpenConnectionForOrderNumberLocksIfNeeded(pendingOrders);
+        var lockedKeys = LockOrderNumberCounters(pendingOrders);
+        try
+        {
+            AssignOrderNumbers(pendingOrders);
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+        finally
+        {
+            UnlockOrderNumberCounters(lockedKeys);
+            CloseConnectionForOrderNumberLocksIfNeeded(shouldCloseConnection);
+        }
     }
 
-    public override Task<int> SaveChangesAsync(
+    public override async Task<int> SaveChangesAsync(
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
         StampTenantOwnedEntities();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var pendingOrders = PendingOrdersWithoutNumber();
+        var shouldCloseConnection = await OpenConnectionForOrderNumberLocksIfNeededAsync(
+            pendingOrders,
+            cancellationToken);
+        var lockedKeys = await LockOrderNumberCountersAsync(pendingOrders, cancellationToken);
+        try
+        {
+            await AssignOrderNumbersAsync(pendingOrders, cancellationToken);
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+        finally
+        {
+            await UnlockOrderNumberCountersAsync(lockedKeys);
+            CloseConnectionForOrderNumberLocksIfNeeded(shouldCloseConnection);
+        }
     }
 
     private void ApplyTenantOwnership(ModelBuilder modelBuilder)
@@ -762,6 +794,135 @@ public class AppDbContext : DbContext
             }
         }
     }
+
+    private void AssignOrderNumbers(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending)
+    {
+        foreach (var group in pending.GroupBy(e => e.Entity.BusinessId))
+        {
+            var next = Orders
+                .IgnoreQueryFilters()
+                .Where(o => o.BusinessId == group.Key)
+                .Select(o => (int?)o.OrderNumber)
+                .Max() ?? 0;
+
+            foreach (var entry in group)
+            {
+                entry.Entity.OrderNumber = ++next;
+            }
+        }
+    }
+
+    private async Task AssignOrderNumbersAsync(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending,
+        CancellationToken cancellationToken)
+    {
+        foreach (var group in pending.GroupBy(e => e.Entity.BusinessId))
+        {
+            var next = await Orders
+                .IgnoreQueryFilters()
+                .Where(o => o.BusinessId == group.Key)
+                .Select(o => (int?)o.OrderNumber)
+                .MaxAsync(cancellationToken) ?? 0;
+
+            foreach (var entry in group)
+            {
+                entry.Entity.OrderNumber = ++next;
+            }
+        }
+    }
+
+    private List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> PendingOrdersWithoutNumber() =>
+        ChangeTracker
+            .Entries<Order>()
+            .Where(e => e.State == EntityState.Added && e.Entity.OrderNumber <= 0)
+            .OrderBy(e => e.Entity.CreatedAt)
+            .ThenBy(e => e.Entity.ClientId)
+            .ToList();
+
+    private bool UsesPostgres =>
+        Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
+
+    private bool OpenConnectionForOrderNumberLocksIfNeeded(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending)
+    {
+        if (pending.Count == 0 || !UsesPostgres) return false;
+        var connection = Database.GetDbConnection();
+        if (connection.State == ConnectionState.Open) return false;
+        Database.OpenConnection();
+        return true;
+    }
+
+    private async Task<bool> OpenConnectionForOrderNumberLocksIfNeededAsync(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending,
+        CancellationToken cancellationToken)
+    {
+        if (pending.Count == 0 || !UsesPostgres) return false;
+        var connection = Database.GetDbConnection();
+        if (connection.State == ConnectionState.Open) return false;
+        await Database.OpenConnectionAsync(cancellationToken);
+        return true;
+    }
+
+    private void CloseConnectionForOrderNumberLocksIfNeeded(bool shouldClose)
+    {
+        if (shouldClose) Database.CloseConnection();
+    }
+
+    private List<long> LockOrderNumberCounters(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending)
+    {
+        if (pending.Count == 0 || !UsesPostgres) return [];
+        var keys = pending
+            .Select(e => OrderNumberLockKey(e.Entity.BusinessId))
+            .Distinct()
+            .Order()
+            .ToList();
+        foreach (var key in keys)
+        {
+            Database.ExecuteSqlRaw("SELECT pg_advisory_lock({0})", key);
+        }
+        return keys;
+    }
+
+    private async Task<List<long>> LockOrderNumberCountersAsync(
+        List<Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Order>> pending,
+        CancellationToken cancellationToken)
+    {
+        if (pending.Count == 0 || !UsesPostgres) return [];
+        var keys = pending
+            .Select(e => OrderNumberLockKey(e.Entity.BusinessId))
+            .Distinct()
+            .Order()
+            .ToList();
+        foreach (var key in keys)
+        {
+            await Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_lock({0})",
+                [key],
+                cancellationToken);
+        }
+        return keys;
+    }
+
+    private void UnlockOrderNumberCounters(List<long> keys)
+    {
+        foreach (var key in keys.AsEnumerable().Reverse())
+        {
+            Database.ExecuteSqlRaw("SELECT pg_advisory_unlock({0})", key);
+        }
+    }
+
+    private async Task UnlockOrderNumberCountersAsync(List<long> keys)
+    {
+        foreach (var key in keys.AsEnumerable().Reverse())
+        {
+            await Database.ExecuteSqlRawAsync("SELECT pg_advisory_unlock({0})", key);
+        }
+    }
+
+    private static long OrderNumberLockKey(int businessId) =>
+        44_000_000_000L + businessId;
 
     private string? ProtectMercadoPagoToken(string? token)
     {

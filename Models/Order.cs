@@ -10,6 +10,9 @@ public class Order : ITenantOwned
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Folio visible dentro del negocio. A diferencia de Id, reinicia por vendedora.</summary>
+    public int OrderNumber { get; set; }
+
     /// <summary>Negocio (tenant) dueno de este pedido.</summary>
     public int BusinessId { get; set; }
 

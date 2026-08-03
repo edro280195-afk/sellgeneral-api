@@ -322,7 +322,11 @@ public class ExcelService : IExcelService
                 ? null
                 : $"{ShareLinkBaseUrl.TrimEnd('/')}/o/{order.AccessToken}",
             MergedIntoOrderId: order.MergedIntoOrderId,
-            MergedAt: order.MergedAt
+            MergedAt: order.MergedAt,
+            OrderNumber: order.OrderNumber > 0 ? order.OrderNumber : order.Id,
+            MergedIntoOrderNumber: order.MergedIntoOrder?.OrderNumber > 0
+                ? order.MergedIntoOrder.OrderNumber
+                : order.MergedIntoOrderId
         );
     }
 }

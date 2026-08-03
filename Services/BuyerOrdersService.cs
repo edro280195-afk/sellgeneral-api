@@ -107,6 +107,7 @@ public class BuyerOrdersService : IBuyerOrdersService
             .Select(o => new
             {
                 o.Id,
+                o.OrderNumber,
                 o.BusinessId,
                 o.Status,
                 o.AccessToken,
@@ -133,6 +134,7 @@ public class BuyerOrdersService : IBuyerOrdersService
 
         var orders = rows.Select(o => new BuyerOrderDto(
             o.Id,
+            o.OrderNumber > 0 ? o.OrderNumber : o.Id,
             o.BusinessId,
             nameOf(o.BusinessId),
             brandOf(o.BusinessId),

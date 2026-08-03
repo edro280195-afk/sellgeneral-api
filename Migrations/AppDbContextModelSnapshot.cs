@@ -1853,6 +1853,9 @@ namespace EntregasApi.Migrations
                     b.Property<DateTime?>("NotifiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("OrderNumber")
+                        .HasColumnType("integer");
+
                     b.Property<int>("OrderType")
                         .HasColumnType("integer");
 
@@ -1898,6 +1901,10 @@ namespace EntregasApi.Migrations
                         .IsUnique();
 
                     b.HasIndex("BusinessId");
+
+                    b.HasIndex("BusinessId", "OrderNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Orders_BusinessId_OrderNumber");
 
                     b.HasIndex("ClientId");
 

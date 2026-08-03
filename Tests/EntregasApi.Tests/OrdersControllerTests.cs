@@ -96,6 +96,47 @@ public class OrdersControllerTests
         Assert.Equal(85m, settings.DefaultShippingCost);
     }
 
+    [Fact]
+    public async Task SaveChanges_AssignsOrderNumberPerBusiness()
+    {
+        using var ctx = TestDbContextFactory.Create();
+
+        var clientA = new Client { BusinessId = 1, Name = "Clienta A", NormalizedName = "clienta a" };
+        var clientB = new Client { BusinessId = 2, Name = "Clienta B", NormalizedName = "clienta b" };
+        ctx.Clients.AddRange(clientA, clientB);
+        await ctx.SaveChangesAsync();
+
+        var firstBusinessOrder = new Order
+        {
+            BusinessId = 1,
+            ClientId = clientA.Id,
+            AccessToken = Guid.NewGuid().ToString("N"),
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        };
+        var secondBusinessOrder = new Order
+        {
+            BusinessId = 2,
+            ClientId = clientB.Id,
+            AccessToken = Guid.NewGuid().ToString("N"),
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        };
+        var secondOrderSameBusiness = new Order
+        {
+            BusinessId = 1,
+            ClientId = clientA.Id,
+            AccessToken = Guid.NewGuid().ToString("N"),
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        };
+
+        ctx.Orders.AddRange(firstBusinessOrder, secondBusinessOrder, secondOrderSameBusiness);
+        await ctx.SaveChangesAsync();
+
+        Assert.Equal(1, firstBusinessOrder.OrderNumber);
+        Assert.Equal(1, secondBusinessOrder.OrderNumber);
+        Assert.Equal(2, secondOrderSameBusiness.OrderNumber);
+        Assert.NotEqual(firstBusinessOrder.Id, secondBusinessOrder.Id);
+    }
+
     private static OrdersController CreateController(AppDbContext ctx) => new(
         ctx,
         null!,

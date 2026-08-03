@@ -107,6 +107,7 @@ public class BuyerFeedService : IBuyerFeedService
             .Select(o => new
             {
                 o.Id,
+                o.OrderNumber,
                 o.BusinessId,
                 o.Status,
                 o.AccessToken,
@@ -123,6 +124,7 @@ public class BuyerFeedService : IBuyerFeedService
             ? null
             : new BuyerActiveOrderDto(
                 active.Id,
+                active.OrderNumber > 0 ? active.OrderNumber : active.Id,
                 active.BusinessId,
                 nameOf(active.BusinessId),
                 brandOf(active.BusinessId),
@@ -135,6 +137,7 @@ public class BuyerFeedService : IBuyerFeedService
             .Take(5)
             .Select(o => new BuyerRecentOrderDto(
                 o.Id,
+                o.OrderNumber > 0 ? o.OrderNumber : o.Id,
                 o.BusinessId,
                 nameOf(o.BusinessId),
                 brandOf(o.BusinessId),

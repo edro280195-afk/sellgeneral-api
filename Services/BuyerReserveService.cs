@@ -206,6 +206,7 @@ public class BuyerReserveService : IBuyerReserveService
 
         return new BuyerOrderDto(
             OrderId: order.Id,
+            OrderNumber: order.OrderNumber > 0 ? order.OrderNumber : order.Id,
             BusinessId: order.BusinessId,
             BusinessName: biz?.Name ?? "",
             BrandPrimaryColor: !string.IsNullOrWhiteSpace(biz?.BrandPrimaryColor)

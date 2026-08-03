@@ -58,6 +58,7 @@ public class OrdersController : ControllerBase
             .Include(o => o.Client)
             .Include(o => o.Items)
             .Include(o => o.Payments)
+            .Include(o => o.MergedIntoOrder)
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null) return NotFound("Pedido no encontrado 😿");
@@ -116,6 +117,7 @@ public class OrdersController : ControllerBase
             .Include(o => o.Client)
             .Include(o => o.Items)
             .Include(o => o.Payments)
+            .Include(o => o.MergedIntoOrder)
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null) return NotFound("Order no encontrada");
