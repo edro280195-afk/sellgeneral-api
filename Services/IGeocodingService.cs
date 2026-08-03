@@ -9,8 +9,28 @@ public record GeocodeResult(
     string? Error
 );
 
+public record AddressSuggestion(
+    string PlaceId,
+    string MainText,
+    string SecondaryText,
+    string Description
+);
+
+public record AddressDetails(
+    string? FormattedAddress,
+    double? Latitude,
+    double? Longitude
+);
+
 public interface IGeocodingService
 {
-    /// <summary>Geocodea una dirección con Google Geocoding API.</summary>
     Task<GeocodeResult> GeocodeAsync(string address, CancellationToken ct = default);
+
+    Task<IReadOnlyList<AddressSuggestion>> AutocompleteAsync(
+        string input,
+        CancellationToken ct = default);
+
+    Task<AddressDetails?> GetPlaceDetailsAsync(
+        string placeId,
+        CancellationToken ct = default);
 }

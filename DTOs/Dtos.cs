@@ -278,7 +278,9 @@ public record ManualOrderRequest(
     int? TargetOrderId = null,
     // Cuando la dueña eligió explícitamente "nuevo pedido", se salta el auto-merge y
     // siempre se crea uno nuevo aunque existan pedidos abiertos.
-    bool ForceNew = false
+    bool ForceNew = false,
+    double? ClientLatitude = null,
+    double? ClientLongitude = null
 );
 public record ManualOrderItem(
     string ProductName,
@@ -393,6 +395,15 @@ public record RouteDto(
     DateTime? StartedAt,
     List<RouteDeliveryDto> Deliveries,
     List<DriverExpenseDto>? Expenses = null
+);
+
+public record RouteGeometryResponse(
+    string? PolylineEncoded,
+    double DepotLatitude,
+    double DepotLongitude,
+    string Source,
+    int DistanceMeters,
+    int DurationSeconds
 );
 
 public record RouteDeliveryDto(

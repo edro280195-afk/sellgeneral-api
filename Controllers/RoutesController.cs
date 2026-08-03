@@ -571,6 +571,48 @@ public class RoutesController : ControllerBase
         return Ok(await MapRouteDto(id));
     }
 
+    [HttpGet("{id}/geometry")]
+    public async Task<ActionResult<RouteGeometryResponse>> GetGeometry(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var deliveries = await _db.Deliveries
+            .Include(d => d.Order).ThenInclude(o => o!.Client)
+            .Include(d => d.TandaParticipant).ThenInclude(p => p!.Client)
+            .Where(d => d.DeliveryRouteId == id)
+            .OrderBy(d => d.SortOrder)
+            .ToListAsync(cancellationToken);
+
+        if (deliveries.Count == 0) return NotFound();
+
+        var depot = await DepotCenterAsync();
+        var stops = deliveries
+            .Select(d =>
+            {
+                var client = d.Kind == DeliveryKind.Tanda
+                    ? d.TandaParticipant?.Client
+                    : d.Order?.Client;
+                return new RouteStop(
+                    StopIdFor(d),
+                    client?.Latitude,
+                    client?.Longitude);
+            })
+            .ToList();
+
+        var geometry = await _optimizer.GetRoadGeometryAsync(
+            stops,
+            depot.lat,
+            depot.lng,
+            cancellationToken);
+        return Ok(new RouteGeometryResponse(
+            geometry.PolylineEncoded,
+            depot.lat,
+            depot.lng,
+            geometry.Source,
+            geometry.DistanceMeters,
+            geometry.DurationSeconds));
+    }
+
     [HttpGet("{id}/chat")]
     public async Task<IActionResult> GetRouteChat(int id)
     {

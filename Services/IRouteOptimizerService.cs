@@ -34,6 +34,16 @@ public interface IRouteOptimizerService
         double startLng,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Calcula solo la geometria vial respetando el orden actual de las paradas.
+    /// No cambia el orden ni aplica reglas de optimizacion del plan.
+    /// </summary>
+    Task<OptimizedRoute> GetRoadGeometryAsync(
+        List<RouteStop> stops,
+        double startLat,
+        double startLng,
+        CancellationToken ct = default);
+
     // Legacy sync API — usada por CamiService y por consumidores que aún no migran.
     List<Order> OptimizeRoute(List<Order> orders, double startLat, double startLng);
 }

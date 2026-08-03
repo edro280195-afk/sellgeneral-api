@@ -37,26 +37,93 @@ public class RouteOptimizerService : IRouteOptimizerService
         if (stops == null || stops.Count == 0)
             return new OptimizedRoute(new List<string>(), 0, 0, "empty");
 
-        if (!await _entitlements.HasFeatureAsync(Feature.TrafficRouteOptimization, ct))
+        var hasTrafficOptimization = await _entitlements.HasFeatureAsync(
+            Feature.TrafficRouteOptimization,
+            ct);
+        if (hasTrafficOptimization)
         {
-            return OptimizeWithHeuristic(stops, startLat, startLng, "haversine+2opt");
+            try
+            {
+                await _entitlements.EnsureWithinLimitAsync(
+                    LimitKey.RouteOptimizationCalls,
+                    currentCount: 0,
+                    ct);
+                var googleResult = await TryOptimizeWithGoogleRoutesAsync(
+                    stops,
+                    startLat,
+                    startLng,
+                    ct);
+                if (googleResult is not null)
+                    return googleResult;
+            }
+            catch (Exception ex) when (ex is not EntitlementLimitExceededException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Google Routes no pudo optimizar la ruta. Se usara heuristica local.");
+            }
         }
+
+        var heuristic = OptimizeWithHeuristic(
+            stops,
+            startLat,
+            startLng,
+            hasTrafficOptimization ? "elite-haversine+2opt" : "haversine+2opt");
 
         try
         {
-            await _entitlements.EnsureWithinLimitAsync(LimitKey.RouteOptimizationCalls, currentCount: 0, ct);
-            var googleResult = await TryOptimizeWithGoogleRoutesAsync(stops, startLat, startLng, ct);
-            if (googleResult is not null)
-            {
-                return googleResult;
-            }
+            var orderedStops = heuristic.OrderedStopIds
+                .Select(id => stops.FirstOrDefault(stop => stop.Id == id))
+                .Where(stop => stop is not null)
+                .Cast<RouteStop>()
+                .ToList();
+            var roadGeometry = await GetRoadGeometryAsync(
+                orderedStops,
+                startLat,
+                startLng,
+                ct);
+            if (roadGeometry.PolylineEncoded is not null)
+                return roadGeometry;
         }
-        catch (Exception ex) when (ex is not EntitlementLimitExceededException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Google Routes no pudo optimizar la ruta. Se usara heuristica local.");
+            _logger.LogWarning(ex, "Google Routes no pudo obtener la geometria vial.");
         }
 
-        return OptimizeWithHeuristic(stops, startLat, startLng, "elite-haversine+2opt");
+        return heuristic;
+    }
+
+    public async Task<OptimizedRoute> GetRoadGeometryAsync(
+        List<RouteStop> stops,
+        double startLat,
+        double startLng,
+        CancellationToken ct = default)
+    {
+        var orderedIds = stops?.Select(s => s.Id).ToList() ?? new List<string>();
+        var withCoords = (stops ?? new List<RouteStop>())
+            .Where(s => s.Latitude.HasValue && s.Longitude.HasValue)
+            .ToList();
+
+        if (withCoords.Count == 0)
+            return new OptimizedRoute(orderedIds, 0, 0, "no-road-geometry");
+
+        if (withCoords.Count > MaxGoogleStops)
+            return new OptimizedRoute(orderedIds, 0, 0, "too-many-stops");
+
+        var result = await TryComputeGoogleRouteAsync(
+            withCoords,
+            startLat,
+            startLng,
+            ct);
+        if (result is null)
+            return new OptimizedRoute(orderedIds, 0, 0, "no-road-geometry");
+
+        return new OptimizedRoute(
+            orderedIds,
+            result.DistanceMeters,
+            result.DurationSeconds,
+            result.Source,
+            result.PolylineEncoded);
     }
 
     private OptimizedRoute OptimizeWithHeuristic(
@@ -115,7 +182,7 @@ public class RouteOptimizerService : IRouteOptimizerService
         double startLng,
         CancellationToken ct)
     {
-        var apiKey = _config["Google:RoutesApiKey"];
+        var apiKey = GetRoutesApiKey();
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "dummy")
         {
             return null;
@@ -215,7 +282,83 @@ public class RouteOptimizerService : IRouteOptimizerService
             polyline);
     }
 
+    private async Task<OptimizedRoute?> TryComputeGoogleRouteAsync(
+        List<RouteStop> orderedStops,
+        double startLat,
+        double startLng,
+        CancellationToken ct)
+    {
+        var apiKey = GetRoutesApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "dummy")
+            return null;
+        if (orderedStops.Count == 0 || orderedStops.Count > MaxGoogleStops)
+            return null;
+
+        var destination = orderedStops[^1];
+        var intermediates = orderedStops.Take(orderedStops.Count - 1).ToList();
+        var requestBody = new
+        {
+            origin = ToWaypoint(startLat, startLng),
+            destination = ToWaypoint(destination),
+            intermediates = intermediates.Select(ToWaypoint).ToList(),
+            travelMode = "DRIVE",
+            routingPreference = "TRAFFIC_AWARE",
+            optimizeWaypointOrder = false,
+            polylineQuality = "OVERVIEW"
+        };
+
+        var http = _httpFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "https://routes.googleapis.com/directions/v2:computeRoutes")
+        {
+            Content = JsonContent.Create(requestBody)
+        };
+        request.Headers.Add("X-Goog-Api-Key", apiKey);
+        request.Headers.Add(
+            "X-Goog-FieldMask",
+            "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline");
+
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (!doc.RootElement.TryGetProperty("routes", out var routes) || routes.GetArrayLength() == 0)
+            return null;
+
+        var route = routes[0];
+        var distance = route.TryGetProperty("distanceMeters", out var distanceElement)
+            ? distanceElement.GetInt32()
+            : 0;
+        var duration = route.TryGetProperty("duration", out var durationElement)
+            ? ParseGoogleDurationSeconds(durationElement.GetString())
+            : 0;
+        var polyline = route.TryGetProperty("polyline", out var polylineElement)
+                       && polylineElement.TryGetProperty("encodedPolyline", out var encoded)
+            ? encoded.GetString()
+            : null;
+
+        return new OptimizedRoute(
+            orderedStops.Select(s => s.Id).ToList(),
+            distance,
+            duration,
+            "google-routes-geometry",
+            polyline);
+    }
+
     private static object ToWaypoint(RouteStop stop) => ToWaypoint(stop.Latitude!.Value, stop.Longitude!.Value);
+
+    private string? GetRoutesApiKey()
+    {
+        return new[]
+            {
+                _config["Google:RoutesApiKey"],
+                _config["Google:MapsApiKey"],
+                _config["Google:GeocodingApiKey"]
+            }
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value) && value != "dummy");
+    }
 
     private static object ToWaypoint(double latitude, double longitude)
     {

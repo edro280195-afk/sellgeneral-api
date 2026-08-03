@@ -448,6 +448,12 @@ public class OrdersController : ControllerBase
         }
 
         // 2. DECIDIMOS SI FUSIONAMOS CONTRA UN PEDIDO ABIERTO O CREAMOS UNO NUEVO 🕵️‍♂️
+        if (req.ClientLatitude.HasValue && req.ClientLongitude.HasValue)
+        {
+            client.Latitude = req.ClientLatitude;
+            client.Longitude = req.ClientLongitude;
+        }
+
         Order? existingOrder = null;
         if (req.TargetOrderId is int targetId)
         {

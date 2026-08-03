@@ -15,7 +15,10 @@ public record UpdateClientRequest(
     string Tag,
     string Type,
     string? DeliveryInstructions = null,
-    string? FacebookProfileUrl = null
+    string? FacebookProfileUrl = null,
+    double? Latitude = null,
+    double? Longitude = null,
+    bool ClearCoordinates = false
 );
 
 public record CreateClientRequest(
@@ -166,6 +169,28 @@ public class ClientsController : ControllerBase
 
         await _db.SaveChangesAsync();
         return Ok(results);
+    }
+
+    [HttpGet("address-suggestions")]
+    public async Task<ActionResult<IReadOnlyList<AddressSuggestion>>> AddressSuggestions(
+        [FromQuery] string? input,
+        CancellationToken cancellationToken)
+    {
+        var suggestions = await _geocoding.AutocompleteAsync(
+            input ?? string.Empty,
+            cancellationToken);
+        return Ok(suggestions);
+    }
+
+    [HttpGet("address-details")]
+    public async Task<ActionResult<AddressDetails>> AddressDetails(
+        [FromQuery] string? placeId,
+        CancellationToken cancellationToken)
+    {
+        var details = await _geocoding.GetPlaceDetailsAsync(
+            placeId ?? string.Empty,
+            cancellationToken);
+        return details == null ? NotFound() : Ok(details);
     }
 
     /// <summary>
@@ -432,6 +457,16 @@ public class ClientsController : ControllerBase
         {
             client.Address = req.Address.Trim();
             client.NormalizedAddress = TextNormalizer.NormalizeAddress(client.Address);
+        }
+        if (req.Latitude.HasValue && req.Longitude.HasValue)
+        {
+            client.Latitude = req.Latitude;
+            client.Longitude = req.Longitude;
+        }
+        else if (req.ClearCoordinates)
+        {
+            client.Latitude = null;
+            client.Longitude = null;
         }
         client.Type = req.Type;
         if (!string.IsNullOrWhiteSpace(req.DeliveryInstructions)) client.DeliveryInstructions = req.DeliveryInstructions;
