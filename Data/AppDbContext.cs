@@ -91,6 +91,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientAlias> ClientAliases => Set<ClientAlias>();
     public DbSet<ClientMergeAudit> ClientMergeAudits => Set<ClientMergeAudit>();
     public DbSet<ClientClaimAudit> ClientClaimAudits => Set<ClientClaimAudit>();
+    public DbSet<OrderMergeAudit> OrderMergeAudits => Set<OrderMergeAudit>();
 
     // Comunidad de tienda (seguir, push nativo, en vivo, novedades)
     public DbSet<StoreFollower> StoreFollowers => Set<StoreFollower>();
@@ -294,6 +295,25 @@ public class AppDbContext : DbContext
             .WithOne(p => p.Order)
             .HasForeignKey(p => p.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Order -> MergedIntoOrder (self-referencing, opcional): SetNull en vez de cascada/bloqueo
+        // porque un pedido "vigente" no debería impedir borrarse ni arrastrar en cascada a los
+        // cascarones que se fusionaron dentro de él.
+        modelBuilder.Entity<Order>()
+            .HasOne(o => o.MergedIntoOrder)
+            .WithMany()
+            .HasForeignKey(o => o.MergedIntoOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Order>()
+            .HasIndex(o => o.MergedIntoOrderId);
+
+        modelBuilder.Entity<OrderMergeAudit>(entity =>
+        {
+            entity.HasIndex(a => a.SourceOrderId);
+            entity.HasIndex(a => a.TargetOrderId);
+            entity.HasIndex(a => a.MergedAt);
+        });
 
         modelBuilder.Entity<OrderPayment>(entity =>
         {

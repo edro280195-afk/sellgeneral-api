@@ -1394,6 +1394,36 @@ public class OrdersController : ControllerBase
     }
 
     // -----------------------------------------------------------------------
+    // FUSIÓN MANUAL DE PEDIDOS (misma clienta o clientas distintas)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// POST /api/orders/{id}/merge - Fusiona req.SourceOrderId DENTRO del pedido {id}: mueve
+    /// artículos y pagos, recalcula el total del destino y deja el de origen como cascarón
+    /// Cancelado (nunca se borra). Sirve tanto para dos pedidos de la misma clienta (duplicados)
+    /// como para juntar el pedido de una clienta dentro del de otra (ej. "agrega lo de mi hija
+    /// a mi bolsa") — en ese caso cada artículo movido queda etiquetado con su clienta original.
+    /// </summary>
+    [HttpPost("{id}/merge")]
+    public async Task<ActionResult<OrderSummaryDto>> MergeOrders(int id, [FromBody] MergeOrdersRequest req)
+    {
+        var result = await _orderService.MergeOrdersAsync(id, req.SourceOrderId);
+        if (!result.Success) return BadRequest(new { message = result.Error });
+
+        var merged = await _db.Orders
+            .Include(o => o.Client)
+            .Include(o => o.Items)
+            .Include(o => o.Payments)
+            .Include(o => o.SalesPeriod)
+            .FirstOrDefaultAsync(o => o.Id == id);
+
+        // ✨ Sincronización Admin-a-Admin
+        await _hub.Clients.Group(SignalRGroupNames.Admins(_tenant.ActiveBusinessId)).SendAsync("DeliveryUpdate", new { OrderId = id, Status = merged!.Status.ToString(), UpdatedBy = "Admin" });
+
+        return Ok(ExcelService.MapToSummary(merged!, merged!.Client, FrontendUrl));
+    }
+
+    // -----------------------------------------------------------------------
     // ENDPOINT DE LIMPIEZA DE DUPLICADOS (ADMIN)
     // -----------------------------------------------------------------------
 

@@ -82,6 +82,16 @@ public class Order : ITenantOwned
     public ICollection<OrderPayment> Payments { get; set; } = new List<OrderPayment>();
     public ICollection<OrderPackage> Packages { get; set; } = new List<OrderPackage>();
 
+    /// <summary>
+    /// Cuando este pedido se fusionó DENTRO de otro (ver OrdersController.MergeOrders),
+    /// apunta al pedido "vigente" que se quedó con sus artículos y pagos. El pedido queda
+    /// como cascarón Cancelado — nunca se borra, para no perder trazabilidad/auditoría.
+    /// </summary>
+    public int? MergedIntoOrderId { get; set; }
+    [ForeignKey(nameof(MergedIntoOrderId))]
+    public Order? MergedIntoOrder { get; set; }
+    public DateTime? MergedAt { get; set; }
+
     [NotMapped]
     public decimal AmountPaid => (Payments?.Sum(p => p.Amount) ?? 0m) + AdvancePayment;
 
@@ -116,6 +126,18 @@ public class OrderItem : ITenantOwned
 
     [Column(TypeName = "decimal(10,2)")]
     public decimal LineTotal { get; set; }
+
+    /// <summary>Pedido del que se movió este artículo al fusionar pedidos (null = nunca se movió de su pedido original).</summary>
+    public int? OriginalOrderId { get; set; }
+
+    /// <summary>
+    /// Clienta dueña original de este artículo cuando llegó de un pedido de OTRA clienta al
+    /// fusionar (ej. lo que pidió la hija se agregó al pedido de la mamá). Null = el artículo
+    /// nunca cambió de clienta. Se guarda también el nombre porque la Client podría borrarse.
+    /// </summary>
+    public int? OriginalClientId { get; set; }
+    [MaxLength(200)]
+    public string? OriginalClientName { get; set; }
 }
 
 public enum OrderStatus

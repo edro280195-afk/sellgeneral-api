@@ -357,6 +357,9 @@ internal class OrderService : IOrderService
         => CalculateOrderDates(clientType, createdAt).ExpiresAt;
 
     public Task SyncOrderExpirationsAsync(int clientId) => Task.CompletedTask;
+
+    public Task<OrderMergeResult> MergeOrdersAsync(int targetOrderId, int sourceOrderId)
+        => Task.FromResult(OrderMergeResult.Fail("No implementado en este stub de pruebas."));
 }
 
 /// <summary>

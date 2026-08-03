@@ -206,8 +206,14 @@ public record OrderSummaryDto(
     int PackageCount = 0,
     // Enlace corto compartible (dominio compartido) que abre el muro de
     // instalación o, si la app está instalada, directamente el pedido.
-    string? ShareUrl = null
+    string? ShareUrl = null,
+    // Fusión de pedidos: si no-nulo, este pedido quedó fusionado dentro de otro.
+    int? MergedIntoOrderId = null,
+    DateTime? MergedAt = null
 );
+
+/// <summary>POST /api/orders/{targetOrderId}/merge — fusiona sourceOrderId dentro del pedido de la URL.</summary>
+public record MergeOrdersRequest(int SourceOrderId);
 
 
 public record ClientDto(
@@ -243,7 +249,10 @@ public record OrderItemDto(
     string ProductName,
     int Quantity,
     decimal UnitPrice,
-    decimal LineTotal
+    decimal LineTotal,
+    // Si el artículo llegó de un pedido de OTRA clienta al fusionar (ej. lo de la hija
+    // agregado a la bolsa de la mamá), aquí queda quién lo pidió originalmente.
+    string? OriginalClientName = null
 );
 
 public record ManualOrderRequest(
