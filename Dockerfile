@@ -16,8 +16,5 @@ WORKDIR /app
 
 COPY --from=build /app/publish .
 
-# Configurar puerto para Render (importante)
-ENV ASPNETCORE_URLS=http://+:80
-
-# Arrancar la app
-ENTRYPOINT ["dotnet", "EntregasApi.dll"]
+# Render expone PORT en runtime. El valor de respaldo permite ejecutar la imagen localmente.
+ENTRYPOINT ["sh", "-c", "exec dotnet EntregasApi.dll --urls http://0.0.0.0:${PORT:-10000}"]
