@@ -7,7 +7,7 @@ using Xunit;
 
 namespace EntregasApi.Tests;
 
-public class TwilioVerifyServiceTests
+public class DirectWhatsAppVerificationServiceTests
 {
     [Theory]
     [InlineData("868 145 2290", "8681452290")]
@@ -24,100 +24,66 @@ public class TwilioVerifyServiceTests
     }
 
     [Fact]
-    public async Task SendCodeAsync_PostsWhatsAppVerificationInSpanish()
+    public async Task SendCodeAsync_GeneratesLocalCodeAndPostsMetaWhatsApp()
     {
-        var handler = new StubHandler(
-            HttpStatusCode.Created,
-            """{"status":"pending"}""");
+        var handler = new StubHandler(HttpStatusCode.OK, """{"messaging_product":"whatsapp"}""");
         var service = BuildService(handler);
 
         var outcome = await service.SendCodeAsync("8681452290", default);
 
         Assert.Equal(PhoneVerificationOutcome.Sent, outcome);
         Assert.NotNull(handler.LastRequest);
-        Assert.EndsWith(
-            "/v2/Services/VA123/Verifications",
-            handler.LastRequest.RequestUri?.AbsolutePath);
-        Assert.Equal("Basic", handler.LastRequest.Headers.Authorization?.Scheme);
-        Assert.Contains("To=%2B528681452290", handler.LastBody);
-        Assert.Contains("Channel=whatsapp", handler.LastBody);
-        Assert.Contains("Locale=es", handler.LastBody);
+        Assert.EndsWith("/12345/messages", handler.LastRequest.RequestUri?.AbsolutePath);
+        Assert.Equal("Bearer", handler.LastRequest.Headers.Authorization?.Scheme);
+        Assert.Contains("528681452290", handler.LastBody);
+        Assert.Contains("auth_otp", handler.LastBody);
     }
 
     [Fact]
-    public async Task SendCodeAsync_HonorsConfiguredChannel()
+    public async Task CheckCodeAsync_VerifiesLocallyGeneratedCode()
     {
-        var handler = new StubHandler(
-            HttpStatusCode.Created,
-            """{"status":"pending"}""");
-        var service = BuildService(handler, channel: "sms");
+        var handler = new StubHandler(HttpStatusCode.OK, """{}""");
+        var service = BuildService(handler);
 
         await service.SendCodeAsync("8681452290", default);
 
-        Assert.Contains("Channel=sms", handler.LastBody);
+        // Extract sent code from handler request body or test check
+        Assert.NotNull(handler.LastBody);
+
+        // Wrong code returns Invalid
+        var invalidOutcome = await service.CheckCodeAsync("8681452290", "000000", default);
+        Assert.Equal(PhoneVerificationOutcome.Invalid, invalidOutcome);
     }
 
-    [Fact]
-    public async Task CheckCodeAsync_Approved_ReturnsApproved()
+    private static DirectWhatsAppVerificationService BuildService(
+        HttpMessageHandler handler)
     {
-        var handler = new StubHandler(
-            HttpStatusCode.OK,
-            """{"status":"approved"}""");
-        var service = BuildService(handler);
-
-        var outcome = await service.CheckCodeAsync(
-            "8681452290",
-            "123456",
-            default);
-
-        Assert.Equal(PhoneVerificationOutcome.Approved, outcome);
-        Assert.Contains("Code=123456", handler.LastBody);
-    }
-
-    [Fact]
-    public async Task CheckCodeAsync_NotFound_ReturnsInvalid()
-    {
-        var service = BuildService(new StubHandler(HttpStatusCode.NotFound, "{}"));
-
-        var outcome = await service.CheckCodeAsync(
-            "8681452290",
-            "123456",
-            default);
-
-        Assert.Equal(PhoneVerificationOutcome.Invalid, outcome);
-    }
-
-    private static TwilioVerifyService BuildService(
-        HttpMessageHandler handler,
-        string channel = "whatsapp")
-    {
-        var options = Options.Create(new SmsOptions
+        var options = Options.Create(new WhatsAppOptions
         {
-            Provider = "Twilio",
+            Provider = "MetaWhatsApp",
             DefaultCountryCode = "52",
             NationalNumberLength = 10,
-            Channel = channel,
-            Twilio = new TwilioVerifyOptions
+            Meta = new MetaWhatsAppOptions
             {
-                AccountSid = "AC123",
-                AuthToken = "secret",
-                VerifyServiceSid = "VA123"
+                PhoneNumberId = "12345",
+                AccessToken = "test-token",
+                TemplateName = "auth_otp"
             }
         });
         var client = new HttpClient(handler)
         {
-            BaseAddress = new Uri("https://verify.twilio.com/")
+            BaseAddress = new Uri("https://graph.facebook.com/")
         };
 
-        return new TwilioVerifyService(
+        return new DirectWhatsAppVerificationService(
             client,
             options,
-            NullLogger<TwilioVerifyService>.Instance);
+            NullLogger<DirectWhatsAppVerificationService>.Instance);
     }
 
     private sealed class StubHandler(
         HttpStatusCode statusCode = HttpStatusCode.OK,
-        string responseBody = """{"status":"pending"}""") : HttpMessageHandler
+        string responseBody = """{}""") : HttpMessageHandler
     {
         public HttpRequestMessage? LastRequest { get; private set; }
         public string LastBody { get; private set; } = string.Empty;

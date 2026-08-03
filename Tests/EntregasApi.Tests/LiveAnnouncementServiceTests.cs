@@ -141,6 +141,7 @@ public class LiveAnnouncementServiceTests
         public Task SendNotificationToClientAsync(int clientId, string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
         public Task SendNotificationToDriverAsync(string routeToken, string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
         public Task SendNotificationToAdminsAsync(string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
+        public Task SendNotificationToBusinessOwnersAsync(int businessId, string title, string message, string? url = null, string? tag = null) => Task.CompletedTask;
         public Task SendNotificationToFollowersAsync(int businessId, string title, string message, string? url = null, string? tag = null, bool vipOnly = false, bool requireNotifyOnPost = false, bool requireNotifyOnLive = false)
         {
             FollowerCalls.Add((businessId, requireNotifyOnLive, vipOnly));

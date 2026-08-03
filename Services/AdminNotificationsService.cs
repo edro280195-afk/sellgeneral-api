@@ -112,10 +112,10 @@ public class AdminNotificationsService : BackgroundService
         var today = localNow.ToString("yyyy-MM-dd");
 
         if (ShouldFire(business.Id, "por-vencer", today))
-            await CheckExpiringSoonAsync(db, push, ct);
+            await CheckExpiringSoonAsync(business.Id, db, push, ct);
 
         if (ShouldFire(business.Id, "saldos", today))
-            await CheckUnpaidAsync(db, push, ct);
+            await CheckUnpaidAsync(business.Id, db, push, ct);
 
         // Pulso del negocio: solo el día configurado, una vez por semana.
         if ((int)localNow.DayOfWeek == weeklyDay)
@@ -136,7 +136,7 @@ public class AdminNotificationsService : BackgroundService
     }
 
     // ── ⌛ Pedidos por vencer ──
-    private async Task CheckExpiringSoonAsync(AppDbContext db, IPushNotificationService push, CancellationToken ct)
+    private async Task CheckExpiringSoonAsync(int businessId, AppDbContext db, IPushNotificationService push, CancellationToken ct)
     {
         var hours = _config.GetValue("AdminNotifications:ExpiringSoonHours", 36);
         var now = DateTime.UtcNow;
@@ -162,12 +162,12 @@ public class AdminNotificationsService : BackgroundService
             ? $"El pedido de {names[0]} está por vencer y aún no se confirma. ¿Le hablas? 💕"
             : $"{soon.Count} pedidos están por vencer sin confirmar: {lista}.";
 
-        await push.SendNotificationToAdminsAsync("⌛ Pedidos por vencer", body, "/orders", "pedidos-por-vencer");
+        await push.SendNotificationToBusinessOwnersAsync(businessId, "⌛ Pedidos por vencer", body, "/orders", "pedidos-por-vencer");
         _logger.LogInformation("Aviso 'por vencer' enviado ({Count}).", soon.Count);
     }
 
     // ── 💰 Saldos sin cobrar ──
-    private async Task CheckUnpaidAsync(AppDbContext db, IPushNotificationService push, CancellationToken ct)
+    private async Task CheckUnpaidAsync(int businessId, AppDbContext db, IPushNotificationService push, CancellationToken ct)
     {
         var minDays = _config.GetValue("AdminNotifications:UnpaidMinDays", 3);
         var cutoff = DateTime.UtcNow.AddDays(-minDays);
@@ -189,7 +189,7 @@ public class AdminNotificationsService : BackgroundService
             ? $"{top.Client?.Name ?? "Una clienta"} debe ${top.BalanceDue:N0} de un pedido ya entregado."
             : $"{conSaldo.Count} pedidos entregados siguen sin cobrarse (${totalAdeudado:N0} en total). El mayor: {top.Client?.Name ?? "?"} (${top.BalanceDue:N0}).";
 
-        await push.SendNotificationToAdminsAsync("💰 Saldos sin cobrar", body, "/orders", "saldos-sin-cobrar");
+        await push.SendNotificationToBusinessOwnersAsync(businessId, "💰 Saldos sin cobrar", body, "/orders", "saldos-sin-cobrar");
         _logger.LogInformation("Aviso 'saldos' enviado ({Count}).", conSaldo.Count);
     }
 
@@ -276,7 +276,7 @@ public class AdminNotificationsService : BackgroundService
 
         if (title != null && body != null)
         {
-            await push.SendNotificationToAdminsAsync(title, body, "/home", "pulso-negocio");
+            await push.SendNotificationToBusinessOwnersAsync(business.Id, title, body, "/home", "pulso-negocio");
             _logger.LogInformation("Pulso del negocio enviado a {BusinessId} (variante {V}).", business.Id, variante);
         }
     }

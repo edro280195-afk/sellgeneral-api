@@ -10,7 +10,24 @@ public interface IPushNotificationService
 {
     Task SendNotificationToClientAsync(int clientId, string title, string message, string? url = null, string? tag = null);
     Task SendNotificationToDriverAsync(string routeToken, string title, string message, string? url = null, string? tag = null);
+
+    /// <summary>
+    /// OBSOLETO para apps nativas: envía por Web Push (<see cref="Models.PushSubscriptionModel"/>
+    /// vía "Role"=="admin"), un camino que solo alimentó el panel web viejo
+    /// (regibazar-web) y que nenis-app nunca puebla — no llega a ninguna vendedora
+    /// de la app. Para avisar a la dueña/admins de un negocio en nenis-app usa
+    /// <see cref="SendNotificationToBusinessOwnersAsync"/>.
+    /// </summary>
     Task SendNotificationToAdminsAsync(string title, string message, string? url = null, string? tag = null);
+
+    /// <summary>
+    /// Avisa a quienes tienen <see cref="Models.MembershipRole.Owner"/> o
+    /// <see cref="Models.MembershipRole.Admin"/> en un negocio: persiste una
+    /// <see cref="Models.Notification"/> por destinataria y empuja push real vía
+    /// FCM (<see cref="IFcmService"/>) contra <see cref="Models.BuyerDeviceToken"/>
+    /// — el mismo camino que ya usan compradoras/seguidoras, NO Web Push/PushSubscriptions.
+    /// </summary>
+    Task SendNotificationToBusinessOwnersAsync(int businessId, string title, string message, string? url = null, string? tag = null);
 
     /// <summary>
     /// Fan-out a las seguidoras (<see cref="Models.StoreFollower"/>) de una
@@ -116,6 +133,72 @@ public class PushNotificationService : IPushNotificationService
             .ToListAsync();
 
         await SendToSubscriptionsAsync(subscriptions, title, message, url, tag);
+    }
+
+    public async Task SendNotificationToBusinessOwnersAsync(int businessId, string title, string message, string? url = null, string? tag = null)
+    {
+        var accountIds = await _db.Memberships.AsNoTracking().IgnoreQueryFilters()
+            .Where(m => m.BusinessId == businessId
+                        && (m.Role == MembershipRole.Owner || m.Role == MembershipRole.Admin))
+            .Select(m => m.AccountId)
+            .Distinct()
+            .ToListAsync();
+
+        if (accountIds.Count == 0) return;
+
+        // Persistir una Notification por destinataria (mismo patrón que
+        // SendNotificationToFollowersAsync) para que aparezca en su historial
+        // aunque en ese momento no reciba el push.
+        try
+        {
+            var clientIdByAccount = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
+                .Where(c => c.BusinessId == businessId && c.AccountId != null
+                            && accountIds.Contains(c.AccountId!.Value))
+                .Select(c => new { c.AccountId, c.Id })
+                .ToDictionaryAsync(c => c.AccountId!.Value, c => c.Id);
+
+            var now = DateTime.UtcNow;
+            foreach (var accountId in accountIds)
+            {
+                _db.Notifications.Add(new Models.Notification
+                {
+                    Id = Guid.NewGuid(),
+                    BusinessId = businessId,
+                    AccountId = accountId,
+                    ClientId = clientIdByAccount.TryGetValue(accountId, out var clientId) ? clientId : null,
+                    Title = title,
+                    Message = message,
+                    Tag = tag ?? "general",
+                    Url = url,
+                    CreatedAt = now,
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No pude persistir las notificaciones de admin/owner para el negocio {BusinessId}", businessId);
+            // Continuar: el push es lo importante.
+        }
+
+        var tokens = await _db.BuyerDeviceTokens.AsNoTracking()
+            .Where(t => accountIds.Contains(t.AccountId))
+            .Select(t => t.Token)
+            .Distinct()
+            .ToListAsync();
+
+        if (tokens.Count == 0) return;
+
+        await _fcm.SendToTokensAsync(
+            tokens,
+            title,
+            message,
+            data: new Dictionary<string, string>
+            {
+                { "type", tag ?? "general" },
+                { "businessId", businessId.ToString() },
+                { "url", url ?? "" },
+            });
     }
 
     public async Task SendNotificationToFollowersAsync(

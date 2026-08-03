@@ -85,10 +85,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
-builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection("Sms"));
-builder.Services.AddHttpClient<IPhoneVerificationService, TwilioVerifyService>(client =>
+builder.Services.Configure<WhatsAppOptions>(builder.Configuration.GetSection("WhatsApp"));
+builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection("WhatsApp"));
+builder.Services.AddHttpClient<IPhoneVerificationService, DirectWhatsAppVerificationService>(client =>
 {
-    client.BaseAddress = new Uri("https://verify.twilio.com/");
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddRateLimiter(options =>
