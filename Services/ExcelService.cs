@@ -292,7 +292,7 @@ public class ExcelService : IExcelService
             order.PostponedAt,
             order.PostponedNote,
             Items: order.Items.Select(i => new OrderItemDto(
-                i.Id, i.ProductName, i.Quantity, i.UnitPrice, i.LineTotal
+                i.Id, i.ProductName, i.Quantity, i.UnitPrice, i.LineTotal, i.OriginalClientName
             )).ToList(),
             ShippingCost: order.ShippingCost,
             AccessToken: order.AccessToken,
@@ -320,7 +320,9 @@ public class ExcelService : IExcelService
             PackageCount: order.TotalPackages ?? 0,
             ShareUrl: string.IsNullOrWhiteSpace(ShareLinkBaseUrl)
                 ? null
-                : $"{ShareLinkBaseUrl.TrimEnd('/')}/o/{order.AccessToken}"
+                : $"{ShareLinkBaseUrl.TrimEnd('/')}/o/{order.AccessToken}",
+            MergedIntoOrderId: order.MergedIntoOrderId,
+            MergedAt: order.MergedAt
         );
     }
 }
