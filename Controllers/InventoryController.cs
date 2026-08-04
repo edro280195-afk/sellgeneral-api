@@ -259,9 +259,12 @@ public sealed class InventoryController(
         var box = await db.InventoryBoxes.Include(current => current.Items)
             .FirstOrDefaultAsync(current => current.Id == id && !current.IsArchived, cancellationToken);
         if (box is null) return NotFound(new { message = "Caja no encontrada." });
-        await using var transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(cancellationToken)
-            : null;
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<ActionResult<InventoryBoxDto>>(async () =>
+        {
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
         var actualByItem = request.Items.ToDictionary(item => item.InventoryItemId, item => item.ActualQuantity);
         if (box.Items.Count == 0 || actualByItem.Count != box.Items.Count || box.Items.Any(item => !actualByItem.ContainsKey(item.Id)))
             return BadRequest(new { message = "El conteo debe incluir exactamente todos los artículos de la caja." });
@@ -283,6 +286,7 @@ public sealed class InventoryController(
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return Ok(MapBox((await LoadBoxAsync(id, cancellationToken))!));
+        });
     }
 
     [HttpPost("transfers")]
@@ -299,9 +303,12 @@ public sealed class InventoryController(
         var destination = await db.InventoryBoxes.Include(box => box.Items)
             .FirstOrDefaultAsync(box => box.Id == request.DestinationBoxId && !box.IsArchived, cancellationToken);
         if (destination is null) return NotFound(new { message = "Caja destino no encontrada." });
-        await using var transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(cancellationToken)
-            : null;
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<ActionResult<InventoryBoxDto>>(async () =>
+        {
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
 
         var target = destination.Items.FirstOrDefault(item =>
             item.Name.Equals(source.Name, StringComparison.OrdinalIgnoreCase) &&
@@ -327,6 +334,7 @@ public sealed class InventoryController(
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return Ok(MapBox((await LoadBoxAsync(destination.Id, cancellationToken))!));
+        });
     }
 
     [HttpGet("items/by-barcode/{barcode}")]

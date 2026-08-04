@@ -91,7 +91,10 @@ namespace EntregasApi.Controllers
         [HttpPost("redeem")]
         public async Task<ActionResult<OrderSummaryDto>> Redeem([FromBody] RedeemRewardRequest req)
         {
-            await using var tx = await _db.Database.BeginTransactionAsync();
+            var strategy = _db.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync<ActionResult<OrderSummaryDto>>(async () =>
+            {
+                await using var tx = await _db.Database.BeginTransactionAsync();
 
             var order = await _db.Orders
                 .Include(o => o.Client)
@@ -146,6 +149,7 @@ namespace EntregasApi.Controllers
             await tx.CommitAsync();
 
             return Ok(ExcelService.MapToSummary(order, client, _frontendUrl));
+            });
         }
 
         /// <summary>POST /api/loyalty/adjust - Sumar o restar puntos manualmente (regalos o correcciones)</summary>

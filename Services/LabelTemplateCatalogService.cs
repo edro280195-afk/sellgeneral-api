@@ -69,36 +69,41 @@ public sealed class LabelTemplateCatalogService(AppDbContext db)
         template.Name = DefaultName(kind, mediaSize);
         template.Description = DefaultDescription(kind);
         db.LabelTemplates.Add(template);
-        await using var transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-        try
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            await db.SaveChangesAsync(cancellationToken);
-            template.PublishedVersionId = published.Id;
-            await db.SaveChangesAsync(cancellationToken);
-            if (transaction is not null)
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            try
             {
-                await transaction.CommitAsync(cancellationToken);
+                await db.SaveChangesAsync(cancellationToken);
+                template.PublishedVersionId = published.Id;
+                await db.SaveChangesAsync(cancellationToken);
+                if (transaction is not null)
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                }
+                return template;
             }
-            return template;
-        }
-        catch (DbUpdateException)
-        {
-            if (transaction is not null)
+            catch (DbUpdateException)
             {
-                await transaction.RollbackAsync(cancellationToken);
+                if (transaction is not null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+                db.Entry(template).State = EntityState.Detached;
+                db.Entry(published).State = EntityState.Detached;
+                db.Entry(draft).State = EntityState.Detached;
+                var winner = await GetPublishedDefaultAsync(kind, mediaSize, cancellationToken);
+                if (winner is not null)
+                {
+                    return winner;
+                }
+                throw;
             }
-            db.Entry(template).State = EntityState.Detached;
-            db.Entry(published).State = EntityState.Detached;
-            db.Entry(draft).State = EntityState.Detached;
-            var winner = await GetPublishedDefaultAsync(kind, mediaSize, cancellationToken);
-            if (winner is not null)
-            {
-                return winner;
-            }
-            throw;
-        }
+        });
     }
 
     public Task<LabelTemplate> GetOrCreateDefaultOrderPackageTemplateAsync(

@@ -35,7 +35,10 @@ public class TandaService : ITandaService
         if (clientIds.Any(id => !clients.ContainsKey(id)))
             throw new InvalidOperationException("Una o más clientas seleccionadas ya no existen.");
 
-        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
         var tanda = new Tanda
         {
             Id = Guid.NewGuid(),
@@ -72,6 +75,7 @@ public class TandaService : ITandaService
         await transaction.CommitAsync();
 
         return MapToTandaDto(tanda);
+        });
     }
 
     public async Task<TandaParticipantDto> AddParticipantAsync(AddParticipantDto dto)
@@ -471,7 +475,10 @@ public class TandaService : ITandaService
             participants.Select(p => p.Id).ToList(),
             participantIdsInOrder);
 
-        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
         foreach (var p in participants)
         {
             p.AssignedTurn += 1000;
@@ -491,6 +498,7 @@ public class TandaService : ITandaService
 
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
+        });
     }
 
     public async Task<TandaWhatsAppReminderDto> GetWhatsAppReminderAsync(Guid participantId, int? weekNumber = null)

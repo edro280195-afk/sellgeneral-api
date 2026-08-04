@@ -247,7 +247,10 @@ public class ClientResolverService : IClientResolverService
     {
         if (sourceId == targetId) throw new ArgumentException("Source y target son la misma clienta");
 
-        using var tx = await _db.Database.BeginTransactionAsync();
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            using var tx = await _db.Database.BeginTransactionAsync();
 
         var source = await _db.Clients
             .Include(c => c.Aliases)
@@ -338,6 +341,7 @@ public class ClientResolverService : IClientResolverService
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
         return audit;
+        });
     }
 
     public async Task<ClientMergeAudit?> TryAutoMergeAsync(int clientId)

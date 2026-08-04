@@ -152,9 +152,12 @@ public class RoutesController : ControllerBase
             orderedIds = optimized.OrderedStopIds;
         }
 
-        using var transaction = await _db.Database.BeginTransactionAsync();
-        try
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
             var route = new DeliveryRoute
             {
                 DriverToken = _tokenService.GenerateAccessToken(),
@@ -213,17 +216,18 @@ public class RoutesController : ControllerBase
             var routeDto = await MapRouteDto(route.Id);
             return Ok(new CreateRouteResponse(routeDto, skipped));
         }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            var innerMsg = ex.InnerException != null ? ex.InnerException.Message : "";
-            _logger.LogError(ex, "[RoutesController.Create] ERROR: {Message} | INNER: {Inner}", ex.Message, innerMsg);
-            return StatusCode(500, new {
-                message = "Error interno al crear la ruta.",
-                detail = ex.Message,
-                innerDetail = innerMsg
-            });
-        }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                var innerMsg = ex.InnerException != null ? ex.InnerException.Message : "";
+                _logger.LogError(ex, "[RoutesController.Create] ERROR: {Message} | INNER: {Inner}", ex.Message, innerMsg);
+                return StatusCode(500, new {
+                    message = "Error interno al crear la ruta.",
+                    detail = ex.Message,
+                    innerDetail = innerMsg
+                });
+            }
+        });
     }
 
     /// <summary>POST /api/routes/preview - Calcula ruta óptima sin guardar. Usado por el builder.</summary>
@@ -1117,9 +1121,12 @@ public class RoutesController : ControllerBase
             .Where(d => d.Status != DeliveryStatus.Delivered && d.Status != DeliveryStatus.NotDelivered)
             .ToList();
 
-        using var transaction = await _db.Database.BeginTransactionAsync();
-        try
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
             var newOrderIdSet = new HashSet<int>(validOrders.Select(o => o.Id));
             var newTandaIdSet = new HashSet<Guid>(validTandas.Select(p => p.Id));
 
@@ -1202,12 +1209,13 @@ public class RoutesController : ControllerBase
             var routeDto = await MapRouteDto(id);
             return Ok(new RecomposeRouteResponse(routeDto, skipped));
         }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "[Recompose] ERROR: {Message} | INNER: {Inner}", ex.Message, ex.InnerException?.Message ?? "");
-            return StatusCode(500, new { message = "Error al recomponer la ruta.", detail = ex.Message });
-        }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "[Recompose] ERROR: {Message} | INNER: {Inner}", ex.Message, ex.InnerException?.Message ?? "");
+                return StatusCode(500, new { message = "Error al recomponer la ruta.", detail = ex.Message });
+            }
+        });
     }
 
     // ═══════════════════════════════════════════
@@ -1251,9 +1259,12 @@ public class RoutesController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
-        using var transaction = await _db.Database.BeginTransactionAsync();
-        try
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<IActionResult>(async () =>
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
             var route = await _db.DeliveryRoutes
                 .Include(r => r.Deliveries)
                 .Include(r => r.ChatMessages)
@@ -1300,11 +1311,12 @@ public class RoutesController : ControllerBase
 
             return Ok(new { message = "Ruta eliminada correctamente y pedidos liberados." });
         }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            return BadRequest(new { message = $"Error al eliminar la ruta: {ex.Message}" });
-        }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(new { message = $"Error al eliminar la ruta: {ex.Message}" });
+            }
+        });
     }
 
     // ═══════════════════════════════════════════
