@@ -119,6 +119,57 @@ public class InventoryNfcTests
         Assert.Single(await db.InventoryLabelPrints.ToListAsync());
     }
 
+    [Fact]
+    public async Task GetBoxMovements_ReturnsPaginatedAndFilteredResults()
+    {
+        await using var db = TestDbContextFactory.Create();
+        db.Businesses.Add(new Business { Id = 1, Name = "Tienda Nenis", Slug = "tienda-nenis" });
+        await db.SaveChangesAsync();
+        var controller = CreateController(db);
+        var box = await CreateBoxAsync(controller, "B-09", "Caja Pruebas Paginación");
+
+        // Add item and perform several adjustments
+        var addItemResult = await controller.AddItem(
+            box.Id,
+            new CreateInventoryItemDto("Camisa", null, null, 10, "Stock inicial"),
+            CancellationToken.None);
+        var item = Assert.Single(Assert.IsType<InventoryBoxDto>(Assert.IsType<OkObjectResult>(addItemResult.Result).Value).Items);
+
+        await controller.AdjustItem(item.Id, new AdjustInventoryItemDto(5, "Entrada extra"), CancellationToken.None);
+        await controller.AdjustItem(item.Id, new AdjustInventoryItemDto(-2, "Salida venta"), CancellationToken.None);
+        await controller.AdjustItem(item.Id, new AdjustInventoryItemDto(-1, "Merma"), CancellationToken.None);
+
+        // Fetch page 1 with pageSize 2
+        var movementsRes = await controller.GetBoxMovements(box.Id, page: 1, pageSize: 2, cancellationToken: CancellationToken.None);
+        var page1Result = Assert.IsType<OkObjectResult>(movementsRes.Result);
+        var page1 = Assert.IsType<InventoryMovementPageDto>(page1Result.Value);
+
+        Assert.Equal(1, page1.Page);
+        Assert.Equal(2, page1.PageSize);
+        Assert.Equal(4, page1.Total);
+        Assert.True(page1.HasMore);
+        Assert.Equal(2, page1.Items.Count);
+
+        // Fetch page 2
+        var page2Res = await controller.GetBoxMovements(box.Id, page: 2, pageSize: 2, cancellationToken: CancellationToken.None);
+        var page2 = Assert.IsType<InventoryMovementPageDto>(Assert.IsType<OkObjectResult>(page2Res.Result).Value);
+
+        Assert.Equal(2, page2.Page);
+        Assert.False(page2.HasMore);
+        Assert.Equal(2, page2.Items.Count);
+
+        // Test filtering by type (Removed)
+        var filteredRes = await controller.GetBoxMovements(box.Id, type: "Removed", cancellationToken: CancellationToken.None);
+        var filtered = Assert.IsType<InventoryMovementPageDto>(Assert.IsType<OkObjectResult>(filteredRes.Result).Value);
+        Assert.Equal(2, filtered.Total);
+        Assert.All(filtered.Items, m => Assert.Equal("Removed", m.Type));
+
+        // Test 404 for missing box
+        var missingRes = await controller.GetBoxMovements(Guid.NewGuid(), cancellationToken: CancellationToken.None);
+        Assert.IsType<NotFoundObjectResult>(missingRes.Result);
+    }
+
+
     private static async Task<InventoryBoxDto> CreateBoxAsync(
         InventoryController controller,
         string code,

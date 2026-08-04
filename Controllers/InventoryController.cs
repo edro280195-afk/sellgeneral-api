@@ -84,6 +84,62 @@ public sealed class InventoryController(
             : Ok(MapBox(box));
     }
 
+    /// <summary>Bitácora paginada de movimientos de una caja con filtro opcional por tipo.</summary>
+    [HttpGet("boxes/{id:guid}/movements")]
+    public async Task<ActionResult<InventoryMovementPageDto>> GetBoxMovements(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 30,
+        [FromQuery] string? type = null,
+        CancellationToken cancellationToken = default)
+    {
+        var boxExists = await db.InventoryBoxes.AsNoTracking()
+            .AnyAsync(box => box.Id == id && !box.IsArchived, cancellationToken);
+        if (!boxExists) return NotFound(new { message = "Caja no encontrada." });
+
+        var query = db.InventoryMovements.AsNoTracking()
+            .Where(movement => movement.InventoryBoxId == id);
+
+        var filterTypes = (type ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(t => Enum.TryParse<InventoryMovementType>(t, true, out var parsed) && Enum.IsDefined(parsed) ? parsed : (InventoryMovementType?)null)
+            .Where(t => t.HasValue)
+            .Select(t => t!.Value)
+            .Distinct()
+            .ToList();
+
+        if (filterTypes.Count > 0)
+        {
+            query = query.Where(movement => filterTypes.Contains(movement.Type));
+        }
+
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var total = await query.CountAsync(cancellationToken);
+        var movements = await query
+            .OrderByDescending(movement => movement.OccurredAt)
+            .ThenByDescending(movement => movement.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Include(movement => movement.InventoryItem)
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        var items = movements.Select(movement => new InventoryMovementDto(
+            movement.Id,
+            movement.InventoryItemId,
+            movement.InventoryItem?.Name,
+            movement.Type.ToString(),
+            movement.QuantityDelta,
+            movement.QuantityAfter,
+            movement.Note,
+            movement.PerformedBy,
+            movement.OccurredAt)).ToList();
+
+        return Ok(new InventoryMovementPageDto(page, pageSize, total, page * pageSize < total, items));
+    }
+
     [HttpPost("boxes")]
     public async Task<ActionResult<InventoryBoxDto>> CreateBox(
         [FromBody] CreateInventoryBoxDto request,
@@ -542,8 +598,9 @@ public sealed class InventoryController(
     }
 
     private InventoryBoxDto MapBox(InventoryBox box) => new(
-        box.Id, box.Code, box.Name, box.Location, box.IsNfcBound,
+        box.Id, box.Code, box.Name, box.Location, box.IsNfcBound, box.NfcTagUid,
         $"{_inventoryLinkBaseUrl}/caja/{box.BusinessId}/{box.NfcToken}",
+        box.Movements.Count,
         box.Items.OrderBy(item => item.Name).ThenBy(item => item.Variant)
             .Select(item => new InventoryItemDto(item.Id, item.Name, item.Variant, item.Barcode, item.LabelCode, item.Quantity, item.UpdatedAt)).ToList(),
         box.Movements.OrderByDescending(movement => movement.OccurredAt).Take(30)

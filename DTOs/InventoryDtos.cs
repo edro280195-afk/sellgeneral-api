@@ -5,7 +5,8 @@ namespace EntregasApi.DTOs;
 public sealed record InventoryBoxSummaryDto(Guid Id, string Code, string Name, string? Location, bool IsNfcBound, int ArticleTypesCount, int TotalUnits, DateTime UpdatedAt);
 public sealed record InventoryItemDto(Guid Id, string Name, string? Variant, string? Barcode, string LabelCode, int Quantity, DateTime UpdatedAt);
 public sealed record InventoryMovementDto(Guid Id, Guid? InventoryItemId, string? ItemName, string Type, int QuantityDelta, int QuantityAfter, string? Note, string PerformedBy, DateTime OccurredAt);
-public sealed record InventoryBoxDto(Guid Id, string Code, string Name, string? Location, bool IsNfcBound, string NfcUrl, List<InventoryItemDto> Items, List<InventoryMovementDto> Movements, DateTime CreatedAt, DateTime UpdatedAt);
+public sealed record InventoryMovementPageDto(int Page, int PageSize, int Total, bool HasMore, List<InventoryMovementDto> Items);
+public sealed record InventoryBoxDto(Guid Id, string Code, string Name, string? Location, bool IsNfcBound, string? NfcTagUid, string NfcUrl, int MovementCount, List<InventoryItemDto> Items, List<InventoryMovementDto> Movements, DateTime CreatedAt, DateTime UpdatedAt);
 
 public sealed record CreateInventoryBoxDto(
     [Required, MaxLength(30)] string Code,
