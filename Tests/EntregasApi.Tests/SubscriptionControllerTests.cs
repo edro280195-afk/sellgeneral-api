@@ -75,7 +75,7 @@ public class SubscriptionControllerTests
     public async Task CreatePreapproval_OnExistingPreapproval_RoutesToUpdate()
     {
         using var ctx = TestDbContextFactory.Create();
-        var business = await SeedBusinessAsync(ctx, planTier: PlanTiers.Entrada,
+        var business = await SeedBusinessAsync(ctx, planTier: PlanTiers.Basico,
             status: SubscriptionStatus.Active);
         business.PreapprovalId = "PRE-EXISTING";
         business.PayerEmail = "owner@test.com";
@@ -141,7 +141,7 @@ public class SubscriptionControllerTests
     public async Task UpdatePreapproval_UpgradeChangesAmountImmediately()
     {
         using var ctx = TestDbContextFactory.Create();
-        var business = await SeedBusinessAsync(ctx, planTier: PlanTiers.Entrada,
+        var business = await SeedBusinessAsync(ctx, planTier: PlanTiers.Basico,
             status: SubscriptionStatus.Active);
         business.PreapprovalId = "PRE-EXISTING";
         business.PayerEmail = "owner@test.com";
@@ -188,7 +188,7 @@ public class SubscriptionControllerTests
         var controller = BuildController(ctx, business.Id, mp, out _);
 
         var result = await controller.UpdatePreapproval(new UpdatePreapprovalRequest(
-            PlanTier: PlanTiers.Entrada, Periodicity: "quarterly"), default);
+            PlanTier: PlanTiers.Basico, Periodicity: "quarterly"), default);
 
         var ok = Assert.IsType<ActionResult<PreapprovalSummaryDto>>(result);
         var summary = Assert.IsType<PreapprovalSummaryDto>(ok.Value);
@@ -197,7 +197,7 @@ public class SubscriptionControllerTests
 
         var stored = await ctx.Businesses.FindAsync(business.Id);
         Assert.Equal(PlanTiers.Elite, stored!.PlanTier);
-        Assert.Equal(PlanTiers.Entrada, stored.PendingPlanTier);
+        Assert.Equal(PlanTiers.Basico, stored.PendingPlanTier);
         Assert.Equal(periodEnd, stored.PendingPlanEffectiveAt);
         Assert.Equal(3, stored.SubscriptionPeriodMonths);
     }

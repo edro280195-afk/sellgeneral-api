@@ -76,12 +76,12 @@ public class RouteOptimizerEntitlementTests
 
         public Task<string> EffectivePlanTierAsync(CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(_hasTrafficFeature ? PlanTiers.Elite : PlanTiers.Entrada);
+            return Task.FromResult(_hasTrafficFeature ? PlanTiers.Elite : PlanTiers.Basico);
         }
 
         public Task<SubscriptionSnapshot> GetSubscriptionSnapshotAsync(CancellationToken cancellationToken = default)
         {
-            var effectivePlan = _hasTrafficFeature ? PlanTiers.Elite : PlanTiers.Entrada;
+            var effectivePlan = _hasTrafficFeature ? PlanTiers.Elite : PlanTiers.Basico;
             return Task.FromResult(new SubscriptionSnapshot(
                 effectivePlan,
                 effectivePlan,

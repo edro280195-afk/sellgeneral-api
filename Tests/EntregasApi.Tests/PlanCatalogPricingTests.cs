@@ -6,7 +6,7 @@ namespace EntregasApi.Tests;
 public class PlanCatalogPricingTests
 {
     [Theory]
-    [InlineData(PlanTiers.Entrada, 129.00)]
+    [InlineData(PlanTiers.Basico, 129.00)]
     [InlineData(PlanTiers.Pro, 250.00)]
     [InlineData(PlanTiers.Elite, 460.00)]
     [InlineData(PlanTiers.Locked, 0)]
@@ -18,7 +18,7 @@ public class PlanCatalogPricingTests
     [Fact]
     public void MonthlyPeriod_HasNoDiscount()
     {
-        Assert.Equal(129m, PlanCatalog.GetPeriodAmount(PlanTiers.Entrada, SubscriptionPeriodicity.Monthly));
+        Assert.Equal(129m, PlanCatalog.GetPeriodAmount(PlanTiers.Basico, SubscriptionPeriodicity.Monthly));
         Assert.Equal(250m, PlanCatalog.GetPeriodAmount(PlanTiers.Pro, SubscriptionPeriodicity.Monthly));
         Assert.Equal(460m, PlanCatalog.GetPeriodAmount(PlanTiers.Elite, SubscriptionPeriodicity.Monthly));
     }
@@ -26,8 +26,8 @@ public class PlanCatalogPricingTests
     [Fact]
     public void QuarterlyPeriod_AppliesTenPercentDiscount()
     {
-        // Entrada: 129 * 3 = 387, con 10% = 348.30
-        Assert.Equal(348.30m, PlanCatalog.GetPeriodAmount(PlanTiers.Entrada, SubscriptionPeriodicity.Quarterly));
+        // Básico: 129 * 3 = 387, con 10% = 348.30
+        Assert.Equal(348.30m, PlanCatalog.GetPeriodAmount(PlanTiers.Basico, SubscriptionPeriodicity.Quarterly));
         // Pro: 250 * 3 = 750, con 10% = 675
         Assert.Equal(675.00m, PlanCatalog.GetPeriodAmount(PlanTiers.Pro, SubscriptionPeriodicity.Quarterly));
         // Elite: 460 * 3 = 1380, con 10% = 1242
@@ -37,8 +37,8 @@ public class PlanCatalogPricingTests
     [Fact]
     public void AnnualPeriod_AppliesTwentyPercentDiscount()
     {
-        // Entrada: 129 * 12 = 1548, con 20% = 1238.40
-        Assert.Equal(1238.40m, PlanCatalog.GetPeriodAmount(PlanTiers.Entrada, SubscriptionPeriodicity.Annual));
+        // Básico: 129 * 12 = 1548, con 20% = 1238.40
+        Assert.Equal(1238.40m, PlanCatalog.GetPeriodAmount(PlanTiers.Basico, SubscriptionPeriodicity.Annual));
         // Pro: 250 * 12 = 3000, con 20% = 2400
         Assert.Equal(2400.00m, PlanCatalog.GetPeriodAmount(PlanTiers.Pro, SubscriptionPeriodicity.Annual));
         // Elite: 460 * 12 = 5520, con 20% = 4416
@@ -49,11 +49,11 @@ public class PlanCatalogPricingTests
     public void Discounts_CanBeZero_ForNoDiscount()
     {
         Assert.Equal(387m, PlanCatalog.GetPeriodAmount(
-            PlanTiers.Entrada,
+            PlanTiers.Basico,
             SubscriptionPeriodicity.Quarterly,
             quarterlyDiscountPct: 0m));
         Assert.Equal(1548m, PlanCatalog.GetPeriodAmount(
-            PlanTiers.Entrada,
+            PlanTiers.Basico,
             SubscriptionPeriodicity.Annual,
             annualDiscountPct: 0m));
     }
@@ -61,9 +61,9 @@ public class PlanCatalogPricingTests
     [Fact]
     public void CustomDiscounts_AreApplied()
     {
-        // 5% trimestral sobre Entrada: 387 * 0.95 = 367.65
+        // 5% trimestral sobre Básico: 387 * 0.95 = 367.65
         Assert.Equal(367.65m, PlanCatalog.GetPeriodAmount(
-            PlanTiers.Entrada,
+            PlanTiers.Basico,
             SubscriptionPeriodicity.Quarterly,
             quarterlyDiscountPct: 5m));
 

@@ -183,7 +183,7 @@ public class BusinessController : ControllerBase
         {
             return BadRequest(new
             {
-                message = "Plan invalido. Usa Entrada, Pro o Elite."
+                message = "Plan invalido. Usa Básico, Pro o Elite."
             });
         }
 

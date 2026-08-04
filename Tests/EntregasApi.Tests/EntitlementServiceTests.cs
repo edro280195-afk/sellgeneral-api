@@ -22,7 +22,7 @@ public class EntitlementServiceTests
         using var ctx = TestDbContextFactory.Create();
         var business = await SeedBusinessAsync(
             ctx,
-            planTier: PlanTiers.Entrada,
+            planTier: PlanTiers.Basico,
             status: SubscriptionStatus.Trialing,
             trialEndsAt: Now.UtcDateTime.AddDays(1));
 
@@ -63,28 +63,28 @@ public class EntitlementServiceTests
     }
 
     [Fact]
-    public async Task ActiveEntrada_DoesNotIncludeFinancials()
+    public async Task ActiveBasico_DoesNotIncludeFinancials()
     {
         using var ctx = TestDbContextFactory.Create();
         var business = await SeedBusinessAsync(
             ctx,
-            planTier: PlanTiers.Entrada,
+            planTier: PlanTiers.Basico,
             status: SubscriptionStatus.Active);
 
         var service = CreateService(ctx, business.Id);
 
-        Assert.Equal(PlanTiers.Entrada, await service.EffectivePlanTierAsync());
+        Assert.Equal(PlanTiers.Basico, await service.EffectivePlanTierAsync());
         Assert.True(await service.HasFeatureAsync(Feature.ManualOrders));
         Assert.False(await service.HasFeatureAsync(Feature.Financials));
     }
 
     [Fact]
-    public async Task MaxDrivers_RespectsEntradaLimit()
+    public async Task MaxDrivers_RespectsBasicoLimit()
     {
         using var ctx = TestDbContextFactory.Create();
         var business = await SeedBusinessAsync(
             ctx,
-            planTier: PlanTiers.Entrada,
+            planTier: PlanTiers.Basico,
             status: SubscriptionStatus.Active);
 
         var service = CreateService(ctx, business.Id);

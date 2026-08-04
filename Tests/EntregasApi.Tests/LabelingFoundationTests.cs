@@ -66,7 +66,7 @@ public class LabelingFoundationTests
     [Fact]
     public void LabelPrinting_IsRestrictedToProAndElite()
     {
-        Assert.DoesNotContain(Feature.LabelPrinting, PlanCatalog.Get(PlanTiers.Entrada).Features);
+        Assert.DoesNotContain(Feature.LabelPrinting, PlanCatalog.Get(PlanTiers.Basico).Features);
         Assert.Contains(Feature.LabelPrinting, PlanCatalog.Get(PlanTiers.Pro).Features);
         Assert.Contains(Feature.LabelPrinting, PlanCatalog.Get(PlanTiers.Elite).Features);
         Assert.Equal(PlanTiers.Pro, PlanCatalog.GetRequiredPlan(Feature.LabelPrinting));

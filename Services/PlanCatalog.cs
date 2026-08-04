@@ -4,7 +4,7 @@ namespace EntregasApi.Services;
 
 public static class PlanTiers
 {
-    public const string Entrada = "Entrada";
+    public const string Basico = "Básico";
     public const string Pro = "Pro";
     public const string Elite = "Elite";
     public const string Locked = "Bloqueado";
@@ -110,8 +110,8 @@ public static class PlanCatalog
             [LimitKey.RouteOptimizationCalls] = 0
         });
 
-    private static readonly PlanDefinition Entrada = new(
-        PlanTiers.Entrada,
+    private static readonly PlanDefinition Basico = new(
+        PlanTiers.Basico,
         BaseFeatures.ToHashSet(),
         new Dictionary<LimitKey, int>
         {
@@ -144,7 +144,7 @@ public static class PlanCatalog
             PlanTiers.Pro => Pro,
             PlanTiers.Elite => Elite,
             PlanTiers.Locked => Locked,
-            _ => Entrada
+            _ => Basico
         };
     }
 
@@ -167,14 +167,16 @@ public static class PlanCatalog
             return PlanTiers.Locked;
         }
 
-        return PlanTiers.Entrada;
+        // "Entrada" (valor historico) se normaliza a "Básico".
+        return PlanTiers.Basico;
     }
 
     public static bool TryNormalizeSelectablePlan(string? planTier, out string normalizedPlanTier)
     {
         var value = planTier?.Trim();
         normalizedPlanTier = Normalize(value);
-        return string.Equals(value, PlanTiers.Entrada, StringComparison.OrdinalIgnoreCase) ||
+        return string.Equals(value, PlanTiers.Basico, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "Entrada", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(value, PlanTiers.Pro, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(value, PlanTiers.Elite, StringComparison.OrdinalIgnoreCase);
     }
@@ -185,7 +187,7 @@ public static class PlanCatalog
         {
             PlanTiers.Elite => 3,
             PlanTiers.Pro => 2,
-            PlanTiers.Entrada => 1,
+            PlanTiers.Basico => 1,
             _ => 0
         };
     }
@@ -198,7 +200,7 @@ public static class PlanCatalog
     {
         return Normalize(planTier) switch
         {
-            PlanTiers.Entrada => 129m,
+            PlanTiers.Basico => 129m,
             PlanTiers.Pro => 250m,
             PlanTiers.Elite => 460m,
             _ => 0m
@@ -260,7 +262,7 @@ public static class PlanCatalog
             Feature.VipDrops or
             Feature.LabelPrinting => PlanTiers.Pro,
 
-            _ => PlanTiers.Entrada
+            _ => PlanTiers.Basico
         };
     }
 

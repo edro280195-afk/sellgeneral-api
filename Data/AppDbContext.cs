@@ -144,7 +144,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(b => b.Slug).IsUnique();
 
             entity.Property(b => b.PlanTier)
-                  .HasDefaultValue("Entrada");
+                  .HasDefaultValue("Básico");
 
             entity.Property(b => b.PendingPlanTier)
                   .HasMaxLength(40);

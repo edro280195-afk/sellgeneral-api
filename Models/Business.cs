@@ -73,7 +73,7 @@ public class Business
     public string? MercadoPagoPublicKey { get; set; }
 
     [Required, MaxLength(40)]
-    public string PlanTier { get; set; } = "Entrada";
+    public string PlanTier { get; set; } = "Básico";
 
     [MaxLength(40)]
     public string? PendingPlanTier { get; set; }

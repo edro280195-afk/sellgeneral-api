@@ -70,7 +70,7 @@ public class SubscriptionController : ControllerBase
         var annualPct = (int)Math.Round(AnnualDiscountPct());
         var plans = new[]
         {
-            PlanTiers.Entrada,
+            PlanTiers.Basico,
             PlanTiers.Pro,
             PlanTiers.Elite
         }
@@ -103,7 +103,7 @@ public class SubscriptionController : ControllerBase
     {
         if (!PlanCatalog.TryNormalizeSelectablePlan(request.PlanTier, out var planTier))
         {
-            return BadRequest(new { message = "Plan invalido. Usa Entrada, Pro o Elite." });
+            return BadRequest(new { message = "Plan invalido. Usa Básico, Pro o Elite." });
         }
 
         if (!SubscriptionPeriodicities.TryParse(request.Periodicity, out var periodicity))
@@ -178,7 +178,7 @@ public class SubscriptionController : ControllerBase
     {
         if (!PlanCatalog.TryNormalizeSelectablePlan(request.PlanTier, out var planTier))
         {
-            return BadRequest(new { message = "Plan invalido. Usa Entrada, Pro o Elite." });
+            return BadRequest(new { message = "Plan invalido. Usa Básico, Pro o Elite." });
         }
 
         if (!SubscriptionPeriodicities.TryParse(request.Periodicity, out var periodicity))

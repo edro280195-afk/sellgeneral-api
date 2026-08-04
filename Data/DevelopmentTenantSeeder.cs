@@ -155,7 +155,7 @@ public static class DevelopmentTenantSeeder
                 DepotLng = -100.3161,
                 GeocodingRegion = "Monterrey, Nuevo Leon, MX",
                 GeminiBusinessName = "Tienda Demo",
-                PlanTier = "Entrada",
+                PlanTier = "Básico",
                 SubscriptionStatus = SubscriptionStatus.Active,
                 IsActive = true
             };
