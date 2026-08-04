@@ -396,6 +396,36 @@ using (var scope = app.Services.CreateScope())
     }
 #pragma warning restore CS0618
 
+    // Backfill de onboarding para cuentas existentes creadas antes de que el
+    // recorrido inicial (migración AddOnboardingAndTrialProtection, 2026-08-04
+    // 00:10:55 UTC) se desplegara. Esa migración añadió
+    // SellerOnboardingCompletedAtUtc/BuyerOnboardingCompletedAtUtc pero NO las
+    // rellenó, así que cualquier cuenta ya activa quedaba con ambos campos en
+    // NULL y el router de la app la mandaba al tour cada vez que iniciaba
+    // sesión (incluso vendedoras con plan ya pagado). Idempotente: solo setea
+    // NULL → valor, nunca sobreescribe; y respeta el corte temporal para no
+    // saltarse el tour de cuentas creadas después del despliegue.
+    var onboardingCutoff = new DateTime(2026, 8, 4, 0, 10, 55, DateTimeKind.Utc);
+    var accountsMissingOnboarding = await db.Accounts
+        .Where(a => a.CreatedAt < onboardingCutoff)
+        .Where(a => a.SellerOnboardingCompletedAtUtc == null
+            || a.BuyerOnboardingCompletedAtUtc == null)
+        .ToListAsync();
+    if (accountsMissingOnboarding.Count > 0)
+    {
+        Console.WriteLine(
+            $"⚙️  Backfill de onboarding para {accountsMissingOnboarding.Count} cuentas existentes...");
+        foreach (var account in accountsMissingOnboarding)
+        {
+            if (account.SellerOnboardingCompletedAtUtc == null)
+                account.SellerOnboardingCompletedAtUtc = account.CreatedAt;
+            if (account.BuyerOnboardingCompletedAtUtc == null)
+                account.BuyerOnboardingCompletedAtUtc = account.CreatedAt;
+        }
+        await db.SaveChangesAsync();
+        Console.WriteLine("✅ Backfill de onboarding completado.");
+    }
+
     // El catálogo de premios de RegiPuntos ya NO se siembra globalmente aquí: ahora es
     // por-tenant y lo crea DevelopmentTenantSeeder.EnsureLoyaltyRewardsAsync (con BusinessId)
     // solo en Development. En producción llega por el migrador / onboarding (Fase 1).
