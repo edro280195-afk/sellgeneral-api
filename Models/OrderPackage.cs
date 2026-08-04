@@ -18,6 +18,9 @@ namespace EntregasApi.Models
 
         public int PackageNumber { get; set; }
 
+        /// <summary>Formato de etiqueta que la bolsa conserva como su preferido.</summary>
+        public LabelMediaSize MediaSize { get; set; } = LabelMediaSize.Shipping4x6;
+
         [Required, MaxLength(100)]
         public string QrCodeValue { get; set; } = string.Empty;
 

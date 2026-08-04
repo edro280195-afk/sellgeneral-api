@@ -67,6 +67,7 @@ public sealed record AvailableLabelPackageDto(
     int PackageNumber,
     int TotalPackages,
     string Status,
+    string MediaSize,
     DateTime CreatedAt);
 
 public sealed record LabelTemplateVersionEditorDto(

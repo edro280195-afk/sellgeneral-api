@@ -1696,7 +1696,8 @@ public class OrdersController : ControllerBase
                 p.CreatedAt,
                 p.LoadedAt,
                 p.DeliveredAt,
-                p.ReturnedAt))
+                p.ReturnedAt,
+                p.MediaSize.ToString()))
             .ToListAsync();
 
         return Ok(packages);
@@ -1707,6 +1708,11 @@ public class OrdersController : ControllerBase
     public async Task<IActionResult> GeneratePackages(int id, [FromBody] GeneratePackagesRequest req)
     {
         if (req.Count <= 0) return BadRequest("Debe generar al menos 1 bolsa.");
+
+        if (!TryParseLabelMediaSize(req.MediaSize, out var mediaSize))
+        {
+            return BadRequest("El formato de etiqueta no es válido.");
+        }
 
         var order = await _db.Orders
             .Include(o => o.Packages)
@@ -1736,6 +1742,7 @@ public class OrdersController : ControllerBase
                 PackageNumber = startingNumber + i,
                 QrCodeValue = qrText,
                 Status = PackageTrackingStatus.Packed,
+                MediaSize = mediaSize,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -1751,8 +1758,26 @@ public class OrdersController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        var result = newPackages.Select(p => new OrderPackageDto(p.Id, p.PackageNumber, p.QrCodeValue, p.Status.ToString(), p.CreatedAt, p.LoadedAt, p.DeliveredAt, p.ReturnedAt));
+        var result = newPackages.Select(p => new OrderPackageDto(p.Id, p.PackageNumber, p.QrCodeValue, p.Status.ToString(), p.CreatedAt, p.LoadedAt, p.DeliveredAt, p.ReturnedAt, p.MediaSize.ToString()));
         return Ok(result);
+    }
+
+    /// <summary>Convierte el formato opcional del request; null = Shipping4x6 (default).</summary>
+    private static bool TryParseLabelMediaSize(string? value, out LabelMediaSize mediaSize)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            mediaSize = LabelMediaSize.Shipping4x6;
+            return true;
+        }
+
+        if (Enum.TryParse(value, ignoreCase: true, out mediaSize))
+        {
+            return true;
+        }
+
+        mediaSize = LabelMediaSize.Shipping4x6;
+        return false;
     }
 
     /// <summary>POST /api/orders/packages/scan - El motor del escáner nativo</summary>

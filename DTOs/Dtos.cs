@@ -1029,7 +1029,7 @@ public record SyncSalesPeriodRequest(
 );
 
 // ── Paquetes y Logística ──
-public record GeneratePackagesRequest(int Count);
+public record GeneratePackagesRequest(int Count, string? MediaSize = null);
 
 public record OrderPackageDto(
     Guid Id,
@@ -1039,7 +1039,8 @@ public record OrderPackageDto(
     DateTime CreatedAt,
     DateTime? LoadedAt,
     DateTime? DeliveredAt,
-    DateTime? ReturnedAt = null
+    DateTime? ReturnedAt = null,
+    string? MediaSize = null
 );
 
 public record ScanPackageRequest(

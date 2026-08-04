@@ -215,6 +215,7 @@ public sealed class LabelPrintJobsController(
                 package.PackageNumber,
                 package.Order.Packages.Count,
                 package.Status.ToString(),
+                package.MediaSize.ToString(),
                 package.CreatedAt))
             .Take(take)
             .ToListAsync(cancellationToken);
