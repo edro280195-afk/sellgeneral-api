@@ -552,7 +552,13 @@ public record ClientOrderView(
     /// <summary>Teléfono del repartidor (para el botón de llamar). Null si no hay ruta/chofer.</summary>
     string? CourierPhone = null,
     /// <summary>Evaluación previa si la clienta ya calificó este pedido. Null si aún no.</summary>
-    OrderRatingDto? Rating = null
+    OrderRatingDto? Rating = null,
+    /// <summary>Id interno del pedido, útil para mostrar "Pedido #123" en la app.</summary>
+    int? OrderId = null,
+    /// <summary>Tipo de pedido: Delivery, PickUp o POS_Tienda.</summary>
+    string? OrderType = null,
+    /// <summary>Total de piezas considerando cantidades de cada partida.</summary>
+    int ItemsQuantity = 0
 );
 
 // ── OrderPayment ──

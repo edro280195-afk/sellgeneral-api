@@ -226,7 +226,10 @@ public class ClientViewController : ControllerBase
             BusinessFacebookUrl: business?.FacebookUrl,
             CourierName: courierName,
             CourierPhone: courierPhone,
-            Rating: existingRating
+            Rating: existingRating,
+            OrderId: order.Id,
+            OrderType: order.OrderType.ToString(),
+            ItemsQuantity: order.Items.Sum(i => i.Quantity)
         ));
     }
 
