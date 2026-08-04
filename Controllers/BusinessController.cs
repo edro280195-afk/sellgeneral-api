@@ -25,6 +25,7 @@ public class BusinessController : ControllerBase
     private readonly IEntitlementService _entitlements;
     private readonly IConfiguration _configuration;
     private readonly TimeProvider _timeProvider;
+    private readonly ISellerTrialPolicy _sellerTrialPolicy;
 
     public BusinessController(
         AppDbContext db,
@@ -32,7 +33,8 @@ public class BusinessController : ControllerBase
         ICurrentTenant currentTenant,
         IEntitlementService entitlements,
         IConfiguration configuration,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ISellerTrialPolicy sellerTrialPolicy)
     {
         _db = db;
         _currentAccount = currentAccount;
@@ -40,6 +42,7 @@ public class BusinessController : ControllerBase
         _entitlements = entitlements;
         _configuration = configuration;
         _timeProvider = timeProvider;
+        _sellerTrialPolicy = sellerTrialPolicy;
     }
 
     [HttpPost]
@@ -81,6 +84,27 @@ public class BusinessController : ControllerBase
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var account = await _db.Accounts
+            .FirstOrDefaultAsync(candidate => candidate.Id == accountId, cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized(new { message = "La cuenta no esta autenticada." });
+        }
+
+        if (string.IsNullOrWhiteSpace(account.Phone) || account.PhoneVerifiedAt is null)
+        {
+            return BadRequest(new
+            {
+                error = "phone_verification_required",
+                message = "Confirma tu telefono por WhatsApp antes de crear un negocio."
+            });
+        }
+
+        var deviceId = Request.Headers[SellerTrialPolicy.DeviceHeaderName].FirstOrDefault();
+        var trialDecision = await _sellerTrialPolicy.EvaluateAsync(
+            account,
+            deviceId,
+            cancellationToken);
         var slug = await GenerateUniqueSlugAsync(baseSlug, cancellationToken);
         var business = new Business
         {
@@ -93,8 +117,10 @@ public class BusinessController : ControllerBase
             GeocodingRegion = NormalizeOptional(request.GeocodingRegion, 120) ?? DefaultGeocodingRegion,
             GeminiBusinessName = name,
             PlanTier = PlanTiers.Pro,
-            SubscriptionStatus = SubscriptionStatus.Trialing,
-            TrialEndsAt = now.AddDays(14),
+            SubscriptionStatus = trialDecision.Granted
+                ? SubscriptionStatus.Trialing
+                : SubscriptionStatus.Expired,
+            TrialEndsAt = trialDecision.Granted ? now.AddDays(14) : null,
             CurrentPeriodEndsAt = null,
             IsActive = true,
             CreatedAt = now
@@ -110,7 +136,18 @@ public class BusinessController : ControllerBase
 
         _db.Businesses.Add(business);
         _db.Memberships.Add(membership);
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            SellerTrialPolicy.IsConcurrentDeviceConflict(exception))
+        {
+            SellerTrialPolicy.ApplyConcurrentDeviceRestriction(account);
+            business.SubscriptionStatus = SubscriptionStatus.Expired;
+            business.TrialEndsAt = null;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
 
         _currentTenant.SetBusiness(business.Id);
         var state = await BuildCurrentStateDtoAsync(cancellationToken);

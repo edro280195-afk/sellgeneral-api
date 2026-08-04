@@ -57,11 +57,13 @@ public class SubscriptionController : ControllerBase
     }
 
     /// <summary>
-    /// Catalogo publico (para el owner) de precios por plan y periodicidad.
+    /// Catalogo publico de precios por plan y periodicidad. Tambien se usa
+    /// antes del registro para que la vendedora conozca el costo real.
     /// </summary>
     [HttpGet("pricing")]
     [BypassSubscriptionLock]
-    [Authorize(Policy = AuthorizationPolicies.Admin)]
+    [AllowAnonymous]
+    [SkipTenantResolution]
     public ActionResult<SubscriptionPricingDto> GetPricing()
     {
         var quarterlyPct = (int)Math.Round(QuarterlyDiscountPct());

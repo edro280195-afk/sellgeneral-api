@@ -151,6 +151,16 @@ E2E contra API local + base DEV:
 | M.1-SMOKE-TEST | Smoke test automatizado post-cutover | Hecho | `EntregasApi.Migrator/smoke-test.ps1` (PowerShell) + `M.1-SMOKE-TEST.md` (instrucciones). 7 tests: 4 publicos (pedido, driver, tanda, token-invalido) + 3 autenticados (login, business/me, orders/paged) que requieren `SMOKE_OWNER_EMAIL` y `SMOKE_OWNER_PASSWORD` via env vars. Validado localmente con la API corriendo contra prod-cutover: 4/4 PASS en los tests publicos. Endpoint de login responde 401 con password incorrecta (la cuenta existe, el endpoint funciona). Exit code 0 = todo OK, 1 = algun FAIL. |
 | M.1-POST-CUTOVER | Pasos restantes operativos | Hecho | `EntregasApi.Migrator/M.1-POST-CUTOVER.md`. 10 pasos en orden: (1) verificar pre-condiciones, (2) apuntar app + reiniciar, (3) smoke test automatizado, (4) smoke test manual en navegador, (5) verificar DataProtection keys (critico si los hosts son distintos), (6) avisar a Regi, (7) monitoreo 24-72h, (8) limpieza de archivos y seguridad, (9) archivar base vieja despues de 30 dias, (10) opcional campana de captura de telefonos. Tiempo total ~30 min de trabajo activo + monitoreo pasivo. Incluye tambien el procedimiento de rollback express (5 min: cambiar env var al host viejo + reiniciar). |
 
+## Registro seguro y onboarding por rol (2026-08-03)
+
+- El alta de vendedora exige telefono confirmado por WhatsApp antes de crear el negocio.
+- La prueba Pro dura 14 dias y se concede una sola vez por Account/telefono y por identificador aleatorio de instalacion (`X-Device-Id`, almacenado solo como HMAC SHA-256).
+- Un segundo intento no recibe otra prueba: el negocio se crea en estado `Expired` y debe contratar un plan. Los intentos simultaneos quedan protegidos por indice unico y manejo de carrera.
+- La migracion `20260804001055_AddOnboardingAndTrialProtection` conserva a las vendedoras existentes como prueba ya consumida y agrega estado de onboarding por rol.
+- `GET /api/business/subscription/pricing` es publico para mostrar precios reales antes del registro.
+- `PUT /api/onboarding/complete` guarda en servidor el recorrido completado de clienta o vendedora y funciona aun con suscripcion bloqueada.
+- Validacion: 325/325 pruebas de API; `dotnet build` sin errores (warnings historicos del proyecto).
+
 ## Resumen
 
 - Hechos: 22 (0.0 -> 1.3 + FE-0..FE-5 + M.1 + M.1-RUNBOOK + M.1-EJECUCION + M.1-APPSETTINGS + M.1-SMOKE-TEST + M.1-POST-CUTOVER).

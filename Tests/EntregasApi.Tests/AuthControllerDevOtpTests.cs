@@ -34,7 +34,7 @@ public class AuthControllerDevOtpTests
             })
             .Build();
 
-        return new AuthController(
+        var controller = new AuthController(
             ctx,
             new TokenService(config),
             new RefreshTokenService(ctx),
@@ -42,6 +42,13 @@ public class AuthControllerDevOtpTests
             config,
             phoneVerification ?? new FakePhoneVerificationService(),
             new FakeHttpClientFactory());
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        controller.Request.Headers[SellerTrialPolicy.DeviceHeaderName] =
+            "auth-controller-test-device-00000001";
+        return controller;
     }
 
     [Fact]
@@ -213,6 +220,9 @@ public class AuthControllerDevOtpTests
         Assert.Equal(LegalVersion, account.LegalVersion);
         Assert.NotNull(account.LegalAcceptedAtUtc);
         Assert.Single(await ctx.Businesses.ToListAsync());
+        var business = await ctx.Businesses.SingleAsync();
+        Assert.Equal(SubscriptionStatus.Trialing, business.SubscriptionStatus);
+        Assert.NotNull(business.TrialEndsAt);
     }
 
     [Fact]

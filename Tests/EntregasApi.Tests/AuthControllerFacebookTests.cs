@@ -462,7 +462,7 @@ public class AuthControllerFacebookTests
             })
             .Build();
 
-        return new AuthController(
+        var controller = new AuthController(
             db,
             new TokenService(config),
             new RefreshTokenService(db),
@@ -470,6 +470,13 @@ public class AuthControllerFacebookTests
             config,
             new FakePhoneVerificationService(),
             new FakeFacebookHttpClientFactory(debugAppId));
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        controller.Request.Headers[SellerTrialPolicy.DeviceHeaderName] =
+            "facebook-auth-test-device-00000001";
+        return controller;
     }
 
     private sealed class FakeFacebookHttpClientFactory(string debugAppId)

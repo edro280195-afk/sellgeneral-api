@@ -13,7 +13,13 @@ public record LoginResponse(
     int AccountId,
     List<AuthMembershipDto> Memberships,
     // Refresh token opaco para re-autenticar en silencio al expirar el JWT.
-    string? RefreshToken = null);
+    string? RefreshToken = null,
+    AccountOnboardingDto? Onboarding = null);
+public record AccountOnboardingDto(
+    bool BuyerCompleted,
+    bool SellerCompleted,
+    bool HasVerifiedPhone);
+public record CompleteOnboardingRequest(string Role);
 public record RegisterRequest(
     string Name,
     string Email,

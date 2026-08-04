@@ -124,6 +124,16 @@ public class AppDbContext : DbContext
             entity.Property(a => a.LegalVersion)
                   .HasMaxLength(32);
 
+            entity.Property(a => a.SellerTrialDeviceHash)
+                  .HasMaxLength(64);
+
+            entity.Property(a => a.SellerTrialRestrictionReason)
+                  .HasMaxLength(40);
+
+            entity.HasIndex(a => a.SellerTrialDeviceHash)
+                  .IsUnique()
+                  .HasFilter("\"SellerTrialDeviceHash\" IS NOT NULL");
+
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_Accounts_IdentityMethod",
                 "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL"));

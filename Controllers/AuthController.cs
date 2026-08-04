@@ -41,6 +41,7 @@ public class AuthController : ControllerBase
     private readonly IHostEnvironment _env;
     private readonly IConfiguration _config;
     private readonly IPhoneVerificationService _phoneVerification;
+    private readonly ISellerTrialPolicy _sellerTrialPolicy;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AuthController> _logger;
 
@@ -52,7 +53,8 @@ public class AuthController : ControllerBase
         IConfiguration config,
         IPhoneVerificationService phoneVerification,
         IHttpClientFactory httpClientFactory,
-        ILogger<AuthController>? logger = null)
+        ILogger<AuthController>? logger = null,
+        ISellerTrialPolicy? sellerTrialPolicy = null)
     {
         _db = db;
         _tokenService = tokenService;
@@ -60,6 +62,8 @@ public class AuthController : ControllerBase
         _env = env;
         _config = config;
         _phoneVerification = phoneVerification;
+        _sellerTrialPolicy = sellerTrialPolicy ??
+            new SellerTrialPolicy(db, config, TimeProvider.System);
         _httpClientFactory = httpClientFactory;
         _logger = logger ?? NullLogger<AuthController>.Instance;
     }
@@ -367,7 +371,7 @@ public class AuthController : ControllerBase
                 cancellationToken);
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
         return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 
@@ -667,7 +671,7 @@ public class AuthController : ControllerBase
                 cancellationToken);
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
 
         return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
@@ -941,7 +945,7 @@ public class AuthController : ControllerBase
                     cancellationToken);
             }
 
-            await _db.SaveChangesAsync(cancellationToken);
+            await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
             return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
         }
 
@@ -989,7 +993,11 @@ public class AuthController : ControllerBase
             DateTime.UtcNow.AddDays(7),
             account.Id,
             membershipList,
-            refreshToken);
+            refreshToken,
+            new AccountOnboardingDto(
+                account.BuyerOnboardingCompletedAtUtc is not null,
+                account.SellerOnboardingCompletedAtUtc is not null,
+                account.PhoneVerifiedAt is not null));
     }
 
     /// <summary>Emite un refresh token nuevo y devuelve la sesión completa.</summary>
@@ -1222,6 +1230,12 @@ public class AuthController : ControllerBase
         if (account.Memberships.Count > 0) return;
 
         var now = DateTime.UtcNow;
+        var deviceId = ControllerContext.HttpContext?.Request.Headers[
+            SellerTrialPolicy.DeviceHeaderName].FirstOrDefault();
+        var trialDecision = await _sellerTrialPolicy.EvaluateAsync(
+            account,
+            deviceId,
+            cancellationToken);
         var slug = await GenerateUniqueBusinessSlugAsync(
             Slugify(businessName),
             cancellationToken);
@@ -1235,8 +1249,10 @@ public class AuthController : ControllerBase
             GeocodingRegion = DefaultGeocodingRegion,
             GeminiBusinessName = businessName,
             PlanTier = PlanTiers.Pro,
-            SubscriptionStatus = SubscriptionStatus.Trialing,
-            TrialEndsAt = now.AddDays(14),
+            SubscriptionStatus = trialDecision.Granted
+                ? SubscriptionStatus.Trialing
+                : SubscriptionStatus.Expired,
+            TrialEndsAt = trialDecision.Granted ? now.AddDays(14) : null,
             IsActive = true,
             CreatedAt = now
         };
@@ -1250,6 +1266,33 @@ public class AuthController : ControllerBase
 
         account.Memberships.Add(membership);
         _db.Businesses.Add(business);
+
+        if (!trialDecision.Granted)
+        {
+            _logger.LogWarning(
+                "Seller trial restricted for account {AccountId}. Reason: {Reason}",
+                account.Id,
+                trialDecision.RestrictionReason);
+        }
+    }
+
+    private async Task SaveChangesHandlingTrialRaceAsync(
+        Account account,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            SellerTrialPolicy.IsConcurrentDeviceConflict(exception))
+        {
+            SellerTrialPolicy.ApplyConcurrentDeviceRestriction(account);
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogWarning(
+                "Concurrent seller trial attempt restricted for account {AccountId}",
+                account.Id);
+        }
     }
 
     private async Task<string> GenerateUniqueBusinessSlugAsync(

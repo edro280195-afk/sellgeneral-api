@@ -54,6 +54,32 @@ public class Account
     [MaxLength(32)]
     public string? LegalVersion { get; set; }
 
+    /// <summary>Momento en que la clienta termino el recorrido inicial de la app.</summary>
+    public DateTime? BuyerOnboardingCompletedAtUtc { get; set; }
+
+    /// <summary>Momento en que la vendedora termino el recorrido inicial de su negocio.</summary>
+    public DateTime? SellerOnboardingCompletedAtUtc { get; set; }
+
+    /// <summary>
+    /// Primera y unica concesion de prueba para esta identidad. No se limpia al
+    /// cancelar, vencer o eliminar un negocio.
+    /// </summary>
+    public DateTime? SellerTrialGrantedAtUtc { get; set; }
+
+    /// <summary>Ultima vez que se evaluo la elegibilidad para una prueba.</summary>
+    public DateTime? SellerTrialEvaluatedAtUtc { get; set; }
+
+    /// <summary>
+    /// Huella HMAC del identificador aleatorio de instalacion. Nunca se guarda
+    /// el identificador crudo enviado por la app.
+    /// </summary>
+    [MaxLength(64)]
+    public string? SellerTrialDeviceHash { get; set; }
+
+    /// <summary>Motivo interno y estable cuando la prueba no fue concedida.</summary>
+    [MaxLength(40)]
+    public string? SellerTrialRestrictionReason { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navegación
