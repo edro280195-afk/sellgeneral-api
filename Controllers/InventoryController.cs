@@ -597,10 +597,18 @@ public sealed class InventoryController(
             data);
     }
 
+    // Mismo cálculo que el listado (GetBoxes) — el detalle se había quedado
+    // sin estos dos campos porque el DTO no los declaraba, y el default `?? 0`
+    // del lado de Flutter tapaba el error mostrando "0" en vez de fallar
+    // (hallazgo QA 2026-08-05: "Artículos"/"Piezas" del detalle de una caja
+    // se quedaban en 0 después de agregar un artículo, aunque la lista de
+    // abajo y la pantalla "Mi bodega" sí mostraran el dato correcto).
     private InventoryBoxDto MapBox(InventoryBox box) => new(
         box.Id, box.Code, box.Name, box.Location, box.IsNfcBound, box.NfcTagUid,
         $"{_inventoryLinkBaseUrl}/caja/{box.BusinessId}/{box.NfcToken}",
         box.Movements.Count,
+        box.Items.Count(item => item.Quantity > 0),
+        box.Items.Sum(item => (int?)item.Quantity) ?? 0,
         box.Items.OrderBy(item => item.Name).ThenBy(item => item.Variant)
             .Select(item => new InventoryItemDto(item.Id, item.Name, item.Variant, item.Barcode, item.LabelCode, item.Quantity, item.UpdatedAt)).ToList(),
         box.Movements.OrderByDescending(movement => movement.OccurredAt).Take(30)

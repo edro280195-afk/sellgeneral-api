@@ -148,6 +148,26 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Correo o contraseña incorrectos." });
         }
 
+        // Alta de vendedora interrumpida antes de confirmar el teléfono: el
+        // Business/Membership recién se crea en ConfirmPhone (AddSellerBusinessAsync),
+        // así que esta cuenta todavía no tiene tienda. Sin este candado el login
+        // "funcionaba" pero el router de Flutter, al ver 0 memberships, mandaba a la
+        // vendedora al tour de CLIENTA por error (hallazgo QA 2026-08-05). Acotado a
+        // cuentas con teléfono y sin membership todavía, para no afectar cuentas
+        // legacy de admin/conductor (sin teléfono) ni vendedoras ya confirmadas.
+        if (account.Phone is not null &&
+            account.PhoneVerifiedAt is null &&
+            account.Memberships.Count == 0)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "phone_not_verified",
+                needsPhoneVerification = true,
+                phone = account.Phone,
+                message = "Confirma tu teléfono para terminar de crear tu tienda. Regístrate de nuevo con el mismo correo y teléfono para reenviar el código por WhatsApp."
+            });
+        }
+
         return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
     }
 

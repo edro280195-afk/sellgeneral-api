@@ -274,6 +274,62 @@ public class AuthControllerDevOtpTests
         Assert.Equal(StatusCodes.Status403Forbidden, obj.StatusCode);
     }
 
+    // ── Login por correo (vendedora): candado de teléfono sin confirmar ──
+    // Hallazgo QA 2026-08-05: una vendedora que registraba pero no terminaba
+    // de confirmar el teléfono (Business/Membership se crean en ConfirmPhone,
+    // no en RegisterPhone) igual podía iniciar sesión por correo — el router
+    // de Flutter, al ver 0 memberships, la mandaba al tour de CLIENTA por
+    // error. Login ahora bloquea ese caso puntual (ver AuthController.Login).
+
+    [Fact]
+    public async Task Login_SellerBeforeConfirm_ReturnsNeedsVerification()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(AcceptedPhoneRegister(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123",
+            AccountType: "seller", BusinessName: "Luna Bonita", City: "Matamoros"));
+
+        var login = await controller.Login(new LoginRequest("ana@correo.com", "secret123"));
+
+        var obj = Assert.IsType<ObjectResult>(login.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, obj.StatusCode);
+        Assert.Equal(0, await ctx.Businesses.CountAsync());
+    }
+
+    [Fact]
+    public async Task Login_SellerAfterConfirm_ReturnsToken()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.RegisterPhone(AcceptedPhoneRegister(
+            "Ana", "López", "8681452290", "ana@correo.com", "secret123",
+            AccountType: "seller", BusinessName: "Luna Bonita", City: "Matamoros"));
+        await controller.ConfirmPhone(AcceptedVerify(
+            "8681452290", "000000", "seller", "Luna Bonita", "Matamoros"));
+
+        var login = await controller.Login(new LoginRequest("ana@correo.com", "secret123"));
+
+        var ok = Assert.IsType<OkObjectResult>(login.Result);
+        var resp = Assert.IsType<LoginResponse>(ok.Value);
+        Assert.Single(resp.Memberships);
+    }
+
+    [Fact]
+    public async Task Login_LegacyAccountWithoutPhone_StillWorks()
+    {
+        // Cuentas admin/conductor creadas por el endpoint legacy (sin teléfono
+        // en absoluto) no deben quedar atrapadas por el candado nuevo.
+        using var ctx = TestDbContextFactory.Create();
+        var controller = Build(ctx);
+        await controller.Register(new RegisterRequest(
+            "Ana López", "ana@correo.com", "secret123", AcceptedLegal: true, LegalVersion: LegalVersion));
+
+        var login = await controller.Login(new LoginRequest("ana@correo.com", "secret123"));
+
+        Assert.IsType<OkObjectResult>(login.Result);
+    }
+
     [Fact]
     public async Task RegisterPhone_AlreadyVerified_Conflict()
     {

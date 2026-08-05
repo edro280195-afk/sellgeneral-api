@@ -49,6 +49,12 @@ public class InventoryNfcTests
         var item = Assert.Single(stocked.Items);
         Assert.StartsWith("NNI", item.LabelCode);
         Assert.Equal(4, item.Quantity);
+        // Hallazgo QA 2026-08-05: InventoryBoxDto (detalle) no traía estos dos
+        // campos —el listado (InventoryBoxSummaryDto) sí— así que el default
+        // `?? 0` del lado de Flutter mostraba "0 Artículos · 0 Piezas" en el
+        // detalle de la caja aunque el artículo sí se hubiera agregado.
+        Assert.Equal(1, stocked.ArticleTypesCount);
+        Assert.Equal(4, stocked.TotalUnits);
         var movement = Assert.Single(stocked.Movements);
         Assert.Equal("InitialCount", movement.Type);
         Assert.Equal(4, movement.QuantityDelta);
