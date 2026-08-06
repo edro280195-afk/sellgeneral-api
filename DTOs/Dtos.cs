@@ -977,8 +977,17 @@ public record UpdateOrderItemRequest(
     decimal UnitPrice
 );
 
-public record SendMessageRequest([property: Required] [property: MaxLength(500)] string Text);
-public record UpdateInstructionsRequest([property: MaxLength(1000)] string? Instructions);
+public record SendMessageRequest
+{
+    [Required, MaxLength(500)]
+    public string Text { get; init; } = string.Empty;
+}
+
+public record UpdateInstructionsRequest
+{
+    [MaxLength(1000)]
+    public string? Instructions { get; init; }
+}
 
 
 // ── SalesPeriods (Cortes de Venta) ──
@@ -1088,11 +1097,20 @@ public record PosVoiceResponse(string Message, string? AudioBase64, List<PosVoic
 public record PosVoiceAction(string Type, string? ClientName = null, string? ProductName = null, decimal? Price = null, int? Quantity = null);
 
 // ── Pago con Tarjeta (Mercado Pago) ──
-public record CardPaymentRequest(
-    [property: Required] [property: MaxLength(2048)] string CardToken,
-    [property: Required] [property: MaxLength(64)] string PaymentMethodId,
-    [property: MaxLength(64)] string? IssuerId,
-    [property: Range(1, 24)] int Installments);
+public record CardPaymentRequest
+{
+    [Required, MaxLength(2048)]
+    public string CardToken { get; init; } = string.Empty;
+
+    [Required, MaxLength(64)]
+    public string PaymentMethodId { get; init; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? IssuerId { get; init; }
+
+    [Range(1, 24)]
+    public int Installments { get; init; }
+}
 
 public record CardPaymentResultDto(
     string Status,

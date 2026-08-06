@@ -70,15 +70,37 @@ public class ClientClaimService : IClientClaimService
             return new ClaimOutcome(ClaimStatus.NotFound, null, "La clienta del pedido no existe.");
         }
 
-        // 4) Si ya está enlazado a otra Account: ROBOCONFIRMA la propiedad. NO lo
-        //    movemos a esta Account; devolvemos AlreadyClaimedByOther para que la UI
-        //    muestre el error sin filtrar a quién pertenece.
-        if (client.AccountId.HasValue && client.AccountId.Value != accountId)
+        // 3.1) Guardrail: La vendedora / dueña / administradora del negocio NO debe
+        //      reclamar los perfiles de sus clientas a su cuenta personal de vendedora
+        //      al probar/abrir sus propios enlaces.
+        var isSeller = await _db.Memberships.AsNoTracking().IgnoreQueryFilters()
+            .AnyAsync(m => m.AccountId == accountId && m.BusinessId == orderInfo.BusinessId
+                        && (m.Role == MembershipRole.Owner || m.Role == MembershipRole.Admin), cancellationToken);
+
+        if (isSeller)
         {
             return new ClaimOutcome(
-                ClaimStatus.AlreadyClaimedByOther,
+                ClaimStatus.Forbidden,
                 null,
-                "Este perfil ya fue reclamado por otra cuenta.");
+                "Eres la vendedora de esta tienda. El perfil de la clienta no se vincula a tu cuenta de vendedora.");
+        }
+
+        // 4) Si ya está enlazado a otra Account:
+        if (client.AccountId.HasValue && client.AccountId.Value != accountId)
+        {
+            // Si la cuenta previa enlazada era de la vendedora/admin (ej. por pruebas al abrir su propio link),
+            // permitimos que la verdadera compradora tome la propiedad del perfil.
+            var previousClaimerIsSeller = await _db.Memberships.AsNoTracking().IgnoreQueryFilters()
+                .AnyAsync(m => m.AccountId == client.AccountId.Value && m.BusinessId == client.BusinessId
+                            && (m.Role == MembershipRole.Owner || m.Role == MembershipRole.Admin), cancellationToken);
+
+            if (!previousClaimerIsSeller)
+            {
+                return new ClaimOutcome(
+                    ClaimStatus.AlreadyClaimedByOther,
+                    null,
+                    "Este perfil ya fue reclamado por otra cuenta.");
+            }
         }
 
         var now = DateTime.UtcNow;
