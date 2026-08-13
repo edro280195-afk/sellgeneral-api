@@ -6,7 +6,13 @@ public sealed record CreateLabelPrintJobRequest(
     int Copies = 1,
     string Output = "SystemPrint");
 
-public sealed record UpdateLabelPrintJobStatusRequest(string Status, string? FailureReason = null);
+/// <summary>
+/// <paramref name="Output"/> es opcional: al crear el trabajo la app todavía no
+/// sabe si va a imprimir directo por Bluetooth o caer al selector del sistema
+/// (depende de si hay una impresora emparejada para el tamaño del trabajo), así
+/// que aquí es donde se corrige al valor real, una vez que ya se intentó.
+/// </summary>
+public sealed record UpdateLabelPrintJobStatusRequest(string Status, string? FailureReason = null, string? Output = null);
 
 public sealed record LabelTemplateVersionSnapshotDto(
     Guid Id,

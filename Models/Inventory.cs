@@ -137,8 +137,9 @@ public sealed class InventoryCountEntry : ITenantOwned
 
 /// <summary>
 /// Bitácora inmutable de una etiqueta de bodega preparada para el selector de
-/// impresión del sistema. El diseño publicado y los datos se congelan antes
-/// del handoff; no afirma que una impresora física haya terminado el trabajo.
+/// impresión del sistema o para Bluetooth directo (ver
+/// <see cref="LabelPrintOutput"/>). El diseño publicado y los datos se congelan
+/// antes del handoff; no afirma que una impresora física haya terminado el trabajo.
 /// </summary>
 public sealed class InventoryLabelPrint : ITenantOwned
 {

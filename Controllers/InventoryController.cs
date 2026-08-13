@@ -407,8 +407,10 @@ public sealed class InventoryController(
     }
 
     /// <summary>
-    /// Congela una etiqueta de caja o artículo antes de abrir el selector de
-    /// impresión nativo. No toca ni configura una impresora específica.
+    /// Congela una etiqueta de caja o artículo antes de entregarla al selector de
+    /// impresión nativo o directo por Bluetooth a una impresora térmica ya
+    /// emparejada en el teléfono (ver <see cref="LabelPrintOutput"/>). El servidor
+    /// no configura ni conoce impresoras: solo registra cuál camino se usó.
     /// </summary>
     [HttpPost("label-prints")]
     public async Task<ActionResult<InventoryLabelPrintDto>> CreateLabelPrint(
@@ -504,6 +506,15 @@ public sealed class InventoryController(
         {
             return BadRequest(new { message = "El estado de impresión no es válido." });
         }
+        LabelPrintOutput? output = null;
+        if (request.Output is not null)
+        {
+            if (!Enum.TryParse<LabelPrintOutput>(request.Output, true, out var parsedOutput) || !Enum.IsDefined(parsedOutput))
+            {
+                return BadRequest(new { message = "La salida de impresión no es válida." });
+            }
+            output = parsedOutput;
+        }
         var print = await db.InventoryLabelPrints.Include(current => current.LabelTemplateVersion)
             .SingleOrDefaultAsync(current => current.Id == id, cancellationToken);
         if (print is null) return NotFound(new { message = "No encontramos este trabajo de etiqueta." });
@@ -519,6 +530,13 @@ public sealed class InventoryController(
         print.FailureReason = status == LabelPrintJobStatus.Failed
             ? request.FailureReason!.Trim()[..Math.Min(request.FailureReason.Trim().Length, 800)]
             : null;
+        // Al crear el trabajo, Output queda en el valor por defecto (SystemPrint)
+        // porque la app todavía no sabe qué camino va a tomar; aquí se corrige al
+        // real, ya que solo se sabe después del intento de impresión.
+        if (output is not null)
+        {
+            print.Output = output.Value;
+        }
         print.UpdatedAt = DateTime.UtcNow;
         if (status == LabelPrintJobStatus.SentToSystem) print.HandedOffAt = print.UpdatedAt;
         await db.SaveChangesAsync(cancellationToken);

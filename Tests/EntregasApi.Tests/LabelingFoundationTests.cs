@@ -127,6 +127,88 @@ public class LabelingFoundationTests
         Assert.NotNull(sent.HandedOffAt);
     }
 
+    /// <summary>
+    /// Al crear el trabajo, Output queda en SystemPrint (el valor por defecto):
+    /// la app todavía no sabe si va a caer al selector del sistema o imprimir
+    /// directo por Bluetooth, eso solo se sabe después del intento. Este test
+    /// confirma que UpdateStatus corrige Output al valor real.
+    /// </summary>
+    [Fact]
+    public async Task UpdateStatus_WithOutput_CorrectsTheOutputRecordedAtCreation()
+    {
+        await using var db = TestDbContextFactory.Create();
+        var (controller, package) = await SeedJobFixtureAsync(db);
+
+        var created = await controller.Create(
+            new CreateLabelPrintJobRequest([package.Id], "Shipping4x6"),
+            CancellationToken.None);
+        var job = Assert.IsType<LabelPrintJobDto>(Assert.IsType<CreatedAtActionResult>(created.Result).Value);
+        Assert.Equal("SystemPrint", job.Output);
+
+        var updated = await controller.UpdateStatus(
+            job.Id,
+            new UpdateLabelPrintJobStatusRequest("SentToSystem", Output: "BluetoothDirect"),
+            CancellationToken.None);
+        var sent = Assert.IsType<LabelPrintJobDto>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+
+        Assert.Equal("BluetoothDirect", sent.Output);
+        Assert.Equal(
+            LabelPrintOutput.BluetoothDirect,
+            (await db.LabelPrintJobs.SingleAsync(current => current.Id == job.Id)).Output);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WithInvalidOutput_ReturnsBadRequest()
+    {
+        await using var db = TestDbContextFactory.Create();
+        var (controller, package) = await SeedJobFixtureAsync(db);
+        var created = await controller.Create(
+            new CreateLabelPrintJobRequest([package.Id], "Shipping4x6"),
+            CancellationToken.None);
+        var job = Assert.IsType<LabelPrintJobDto>(Assert.IsType<CreatedAtActionResult>(created.Result).Value);
+
+        var updated = await controller.UpdateStatus(
+            job.Id,
+            new UpdateLabelPrintJobStatusRequest("SentToSystem", Output: "FaxMachine"),
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(updated.Result);
+        Assert.Equal(
+            LabelPrintJobStatus.Prepared,
+            (await db.LabelPrintJobs.SingleAsync(current => current.Id == job.Id)).Status);
+    }
+
+    private async Task<(LabelPrintJobsController Controller, OrderPackage Package)> SeedJobFixtureAsync(AppDbContext db)
+    {
+        var business = new Business { Id = 1, Name = "Boutique Ana", Slug = "boutique-ana" };
+        var client = new Client
+        {
+            BusinessId = 1,
+            Name = "Mariana López",
+            Phone = "8680000000",
+            Address = "Calle Rosas 12",
+            NormalizedName = "MARIANA LOPEZ"
+        };
+        var order = new Order
+        {
+            BusinessId = 1,
+            Client = client,
+            AccessToken = "pedido-prueba-" + Guid.NewGuid(),
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            Items = [new OrderItem { BusinessId = 1, ProductName = "Blusa lila", Quantity = 2, UnitPrice = 120, LineTotal = 240 }]
+        };
+        var package = new OrderPackage
+        {
+            BusinessId = 1,
+            Order = order,
+            PackageNumber = 1,
+            QrCodeValue = "NN-ORD1-PKG1-" + Guid.NewGuid()
+        };
+        db.AddRange(business, client, order, package);
+        await db.SaveChangesAsync();
+        return (CreateController(db), package);
+    }
+
     [Fact]
     public async Task AvailablePackages_OnlyReturnsPackagesThatCanStillBePrepared()
     {

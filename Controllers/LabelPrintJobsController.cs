@@ -12,7 +12,9 @@ namespace EntregasApi.Controllers;
 
 /// <summary>
 /// Prepara trabajos de etiquetas de bolsas. El servidor conserva el diseño y los
-/// datos usados; la app entrega el documento al selector de impresión del sistema.
+/// datos usados; la app entrega el documento al selector de impresión del sistema
+/// o directo por Bluetooth a una impresora térmica ya emparejada (ver
+/// <see cref="LabelPrintOutput"/>).
 /// </summary>
 [ApiController]
 [Route("api/label-print-jobs")]
@@ -233,6 +235,15 @@ public sealed class LabelPrintJobsController(
         {
             return BadRequest(new { message = "El estado de impresión no es válido." });
         }
+        LabelPrintOutput? output = null;
+        if (request.Output is not null)
+        {
+            if (!TryParseOutput(request.Output, out var parsedOutput))
+            {
+                return BadRequest(new { message = "La salida de impresión no es válida." });
+            }
+            output = parsedOutput;
+        }
         var job = await db.LabelPrintJobs
             .Include(current => current.LabelTemplateVersion)
             .Include(current => current.Items)
@@ -252,6 +263,13 @@ public sealed class LabelPrintJobsController(
 
         job.Status = status;
         job.FailureReason = status == LabelPrintJobStatus.Failed ? request.FailureReason!.Trim()[..Math.Min(request.FailureReason.Trim().Length, 800)] : null;
+        // Al crear el trabajo, Output queda en el valor por defecto (SystemPrint)
+        // porque la app todavía no sabe qué camino va a tomar; aquí se corrige al
+        // real, ya que solo se sabe después del intento de impresión.
+        if (output is not null)
+        {
+            job.Output = output.Value;
+        }
         job.UpdatedAt = DateTime.UtcNow;
         if (status == LabelPrintJobStatus.SentToSystem)
         {

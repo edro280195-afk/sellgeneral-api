@@ -11,8 +11,9 @@ public enum LabelTemplateKind
 }
 
 /// <summary>
-/// Tamaño físico del medio. No representa una marca ni una configuración de impresora.
-/// La aplicación entrega el documento al selector nativo del dispositivo.
+/// Tamaño físico del medio. No representa una marca ni una configuración de impresora:
+/// la app decide en tiempo de impresión si lo entrega al selector nativo del sistema o
+/// directo por Bluetooth a una impresora térmica ya emparejada (ver <see cref="LabelPrintOutput"/>).
 /// </summary>
 public enum LabelMediaSize
 {
@@ -27,16 +28,28 @@ public enum LabelTemplateVersionStatus
     Archived = 2
 }
 
+/// <summary>
+/// Cómo se entregó el trabajo de impresión. <see cref="SystemPrint"/> se fija al crear
+/// el trabajo, como valor por defecto, antes de saber cuál camino se va a tomar: la app
+/// decide entre Bluetooth directo (si hay una impresora térmica ya emparejada en el
+/// teléfono para el tamaño de medio del trabajo) o el selector nativo del sistema, y solo
+/// lo sabe con certeza después del intento — por eso el valor real se corrige al llamar
+/// al endpoint de actualizar estado (`PUT .../status`), no al crear el trabajo.
+/// </summary>
 public enum LabelPrintOutput
 {
     SystemPrint = 0,
     PdfExport = 1,
-    Share = 2
+    Share = 2,
+    BluetoothDirect = 3
 }
 
 /// <summary>
-/// El sistema operativo no confirma que el papel saliera físicamente. Por ello el
-/// estado máximo verificable es que el trabajo se entregó al sistema de impresión.
+/// Ninguno de los dos caminos de entrega confirma que el papel saliera físicamente: ni
+/// el sistema operativo (<see cref="LabelPrintOutput.SystemPrint"/>) ni la impresora
+/// térmica por Bluetooth directo (<see cref="LabelPrintOutput.BluetoothDirect"/>) avisan
+/// cuando termina de imprimir. Por eso el estado máximo verificable es que el trabajo se
+/// entregó al destino elegido, no que una impresora física lo completó.
 /// </summary>
 public enum LabelPrintJobStatus
 {
@@ -138,7 +151,8 @@ public sealed class LabelAsset : ITenantOwned
 
 /// <summary>
 /// Trabajo de impresión auditable. Guarda la versión exacta y el contenido de cada
-/// etiqueta antes de entregarlo al sistema operativo.
+/// etiqueta antes de entregarla al selector del sistema operativo o directo por
+/// Bluetooth a una impresora térmica emparejada (ver <see cref="LabelPrintOutput"/>).
 /// </summary>
 public sealed class LabelPrintJob : ITenantOwned
 {

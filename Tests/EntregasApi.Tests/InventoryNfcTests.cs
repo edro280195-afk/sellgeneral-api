@@ -125,6 +125,39 @@ public class InventoryNfcTests
         Assert.Single(await db.InventoryLabelPrints.ToListAsync());
     }
 
+    /// <summary>
+    /// Al crear el trabajo, Output queda en SystemPrint (el valor por defecto):
+    /// la app todavía no sabe si va a caer al selector del sistema o imprimir
+    /// directo por Bluetooth, eso solo se sabe después del intento. Este test
+    /// confirma que UpdateLabelPrintStatus corrige Output al valor real.
+    /// </summary>
+    [Fact]
+    public async Task UpdateLabelPrintStatus_WithOutput_CorrectsTheOutputRecordedAtCreation()
+    {
+        await using var db = TestDbContextFactory.Create();
+        db.Businesses.Add(new Business { Id = 1, Name = "Tienda Nenis", Slug = "tienda-nenis" });
+        await db.SaveChangesAsync();
+        var controller = CreateController(db);
+        var box = await CreateBoxAsync(controller, "B-10", "Zapatos");
+
+        var created = await controller.CreateLabelPrint(
+            new CreateInventoryLabelPrintDto("InventoryBox", box.Id, "Square50x50", 1),
+            CancellationToken.None);
+        var print = Assert.IsType<InventoryLabelPrintDto>(Assert.IsType<CreatedAtActionResult>(created.Result).Value);
+        Assert.Equal("SystemPrint", print.Output);
+
+        var updated = await controller.UpdateLabelPrintStatus(
+            print.Id,
+            new UpdateInventoryLabelPrintStatusDto("SentToSystem", Output: "BluetoothDirect"),
+            CancellationToken.None);
+        var sent = Assert.IsType<InventoryLabelPrintDto>(Assert.IsType<OkObjectResult>(updated.Result).Value);
+
+        Assert.Equal("BluetoothDirect", sent.Output);
+        Assert.Equal(
+            LabelPrintOutput.BluetoothDirect,
+            (await db.InventoryLabelPrints.SingleAsync(current => current.Id == print.Id)).Output);
+    }
+
     [Fact]
     public async Task GetBoxMovements_ReturnsPaginatedAndFilteredResults()
     {
