@@ -49,7 +49,18 @@ public sealed class IncrementalSynchronizer
         new SyncTable("raffle_entries"),
         new SyncTable("ClientAliases"),
         new SyncTable("ClientMergeAudits"),
-        new SyncTable("InventoryBoxes"),
+        new SyncTable(
+            "InventoryBoxes",
+            RowValueOverrides: new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
+            {
+                // Caja "Cajones King" (Regi Bazar) choca en Code="B-01" con la caja "Sabanas"
+                // ya existente en el Tenant 1 (ambas creadas 2026-08-04, uso en paralelo de
+                // las dos apps). Decision del dueno: la entrante se renombra a B-01-RB.
+                ["80f37283-09a7-4845-9602-c8d5a2817170"] = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["Code"] = "B-01-RB",
+                },
+            }),
         new SyncTable("InventoryItems"),
         new SyncTable("InventoryMovements"),
         new SyncTable("InventoryCountSessions"),
@@ -135,6 +146,17 @@ public sealed class IncrementalSynchronizer
 
             foreach (var table in TablesInDependencyOrder)
             {
+                if (table.Name == "Orders")
+                {
+                    var orderRows = await SynchronizeOrdersAsync(
+                        source,
+                        sourceTransaction,
+                        destination,
+                        destinationTransaction,
+                        cancellationToken);
+                    _logger.LogInformation("{Table}: {Rows} filas sincronizadas", table.Name, orderRows);
+                    continue;
+                }
                 if (table.Name == "LabelTemplates")
                 {
                     await PrepareLabelTemplateDefaultsAsync(
@@ -456,12 +478,34 @@ public sealed class IncrementalSynchronizer
         var destinationTypeNames = copiedColumns
             .Select(column => destinationColumnTypes[column.Destination])
             .ToArray();
+        var pkColumnIndex = copiedColumns.FindIndex(column => string.Equals(column.Source, sourcePrimaryKey[0], StringComparison.Ordinal));
         while (await reader.ReadAsync(cancellationToken))
         {
             var values = new object?[reader.FieldCount];
             for (var columnIndex = 0; columnIndex < reader.FieldCount; columnIndex++)
             {
                 values[columnIndex] = reader.IsDBNull(columnIndex) ? null : reader.GetValue(columnIndex);
+            }
+            if (table.Overrides.Count > 0 && pkColumnIndex >= 0)
+            {
+                var pkValue = values[pkColumnIndex];
+                if (pkValue is not null && table.Overrides.TryGetValue(KeyValue(pkValue), out var columnOverrides))
+                {
+                    foreach (var (column, overrideValue) in columnOverrides)
+                    {
+                        var overrideIndex = copiedColumns.FindIndex(c => string.Equals(c.Destination, column, StringComparison.Ordinal));
+                        if (overrideIndex >= 0)
+                        {
+                            values[overrideIndex] = overrideValue;
+                            _logger.LogWarning(
+                                "{Table}: override manual aplicado a {Pk} -> {Column}=\"{Value}\"",
+                                table.Name,
+                                KeyValue(pkValue),
+                                column,
+                                overrideValue);
+                        }
+                    }
+                }
             }
             batch.Add(new RowValues(values));
             if (batch.Count == BatchSize)
@@ -494,6 +538,129 @@ public sealed class IncrementalSynchronizer
             rowCount += batch.Count;
         }
         return rowCount;
+    }
+
+    /// <summary>
+    /// Orders.OrderNumber no existe en el esquema legacy de Regi Bazar (se agrego despues, en
+    /// la migracion AddBusinessOrderNumber, con backfill 1..N por negocio). El sync generico
+    /// solo copia columnas que comparten nombre entre origen y destino, asi que omite
+    /// OrderNumber y deja que el DEFAULT 0 de la columna se use para cada fila nueva, lo que
+    /// choca contra el indice unico (BusinessId, OrderNumber) en cuanto hay 2+ pedidos nuevos.
+    /// Por eso Orders tiene su propio camino: a los NUEVOS se les asigna el siguiente
+    /// OrderNumber disponible (orden cronologico por CreatedAt); a los que YA EXISTEN solo se
+    /// les actualizan las columnas compartidas, sin tocar OrderNumber jamas.
+    /// </summary>
+    private async Task<long> SynchronizeOrdersAsync(
+        NpgsqlConnection source,
+        NpgsqlTransaction sourceTransaction,
+        NpgsqlConnection destination,
+        NpgsqlTransaction destinationTransaction,
+        CancellationToken cancellationToken)
+    {
+        const string tableName = "Orders";
+        var sourceColumns = await GetColumnsAsync(source, sourceTransaction, tableName, cancellationToken);
+        var destinationColumns = await GetColumnsAsync(destination, destinationTransaction, tableName, cancellationToken);
+        var destinationColumnTypes = await GetColumnTypesAsync(destination, destinationTransaction, tableName, cancellationToken);
+        var sharedColumns = sourceColumns.Where(destinationColumns.Contains).ToList();
+        var idIndex = sharedColumns.IndexOf("Id");
+
+        var destinationIds = new HashSet<int>();
+        await using (var command = new NpgsqlCommand(
+            "SELECT \"Id\" FROM \"Orders\" WHERE \"BusinessId\" = @businessId", destination, destinationTransaction))
+        {
+            command.Parameters.AddWithValue("businessId", BusinessId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                destinationIds.Add(reader.GetInt32(0));
+            }
+        }
+
+        int nextOrderNumber;
+        await using (var command = new NpgsqlCommand(
+            "SELECT COALESCE(MAX(\"OrderNumber\"), 0) FROM \"Orders\" WHERE \"BusinessId\" = @businessId", destination, destinationTransaction))
+        {
+            command.Parameters.AddWithValue("businessId", BusinessId);
+            nextOrderNumber = (int)(await command.ExecuteScalarAsync(cancellationToken))! + 1;
+        }
+
+        var newRows = new List<object?[]>();
+        var updateRows = new List<object?[]>();
+        var selectSql = $"SELECT {string.Join(", ", sharedColumns.Select(MigrationPlan.Quote))} FROM \"Orders\" ORDER BY \"CreatedAt\"";
+        await using (var command = new NpgsqlCommand(selectSql, source, sourceTransaction))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var values = new object?[reader.FieldCount];
+                for (var i = 0; i < reader.FieldCount; i++)
+                {
+                    values[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                }
+                (destinationIds.Contains((int)values[idIndex]!) ? updateRows : newRows).Add(values);
+            }
+        }
+
+        var insertTypeNames = sharedColumns.Select(c => destinationColumnTypes[c]).ToArray();
+        var insertColumnsSql = string.Join(
+            ", ",
+            sharedColumns.Select(MigrationPlan.Quote).Append("\"BusinessId\"").Append("\"OrderNumber\""));
+        long inserted = 0;
+        for (var batchStart = 0; batchStart < newRows.Count; batchStart += BatchSize)
+        {
+            var batch = newRows.Skip(batchStart).Take(BatchSize).ToList();
+            var valuesSql = new List<string>(batch.Count);
+            await using var command = new NpgsqlCommand { Connection = destination, Transaction = destinationTransaction };
+            for (var rowIndex = 0; rowIndex < batch.Count; rowIndex++)
+            {
+                var parameters = new List<string>(sharedColumns.Count + 2);
+                for (var columnIndex = 0; columnIndex < sharedColumns.Count; columnIndex++)
+                {
+                    var parameterName = $"p_{rowIndex}_{columnIndex}";
+                    parameters.Add($"@{parameterName}");
+                    command.Parameters.Add(CreateParameter(parameterName, insertTypeNames[columnIndex], batch[rowIndex][columnIndex]));
+                }
+                var businessParam = $"biz_{rowIndex}";
+                parameters.Add($"@{businessParam}");
+                command.Parameters.AddWithValue(businessParam, BusinessId);
+
+                var numberParam = $"num_{rowIndex}";
+                parameters.Add($"@{numberParam}");
+                command.Parameters.AddWithValue(numberParam, nextOrderNumber + batchStart + rowIndex);
+
+                valuesSql.Add($"({string.Join(", ", parameters)})");
+            }
+            command.CommandText =
+                $"INSERT INTO \"Orders\" ({insertColumnsSql}) VALUES {string.Join(", ", valuesSql)} ON CONFLICT (\"Id\") DO NOTHING";
+            inserted += await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        long updated = 0;
+        var updatableColumns = sharedColumns.Where(c => c != "Id").ToList();
+        foreach (var row in updateRows)
+        {
+            await using var command = new NpgsqlCommand { Connection = destination, Transaction = destinationTransaction };
+            var setClauses = new List<string>(updatableColumns.Count);
+            foreach (var column in updatableColumns)
+            {
+                var columnIndex = sharedColumns.IndexOf(column);
+                var parameterName = $"c_{columnIndex}";
+                setClauses.Add($"{MigrationPlan.Quote(column)} = @{parameterName}");
+                command.Parameters.Add(CreateParameter(parameterName, destinationColumnTypes[column], row[columnIndex]));
+            }
+            command.Parameters.Add(CreateParameter("id", destinationColumnTypes["Id"], row[idIndex]));
+            command.Parameters.AddWithValue("businessId", BusinessId);
+            command.CommandText = $"UPDATE \"Orders\" SET {string.Join(", ", setClauses)} WHERE \"Id\" = @id AND \"BusinessId\" = @businessId";
+            updated += await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Orders: {New} nuevas (OrderNumber {From}-{To}), {Updated} actualizadas",
+            inserted,
+            newRows.Count > 0 ? nextOrderNumber : 0,
+            newRows.Count > 0 ? nextOrderNumber + newRows.Count - 1 : 0,
+            updated);
+        return inserted + updated;
     }
 
     private static async Task UpsertBatchAsync(
@@ -1192,12 +1359,23 @@ public sealed class IncrementalSynchronizer
     private sealed record SyncTable(
         string Name,
         IEnumerable<string>? Excluded = null,
-        IReadOnlyDictionary<string, string>? SourceColumnMappings = null)
+        IReadOnlyDictionary<string, string>? SourceColumnMappings = null,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? RowValueOverrides = null)
     {
         public IReadOnlySet<string> ExcludedColumns { get; } = (Excluded ?? Array.Empty<string>())
             .ToHashSet(StringComparer.Ordinal);
         public IReadOnlyDictionary<string, string> SourceColumnByDestination { get; } =
             SourceColumnMappings ?? new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Correcciones puntuales por fila (keyed por el valor de la PK del ORIGEN, como
+        /// string) para resolver choques reales de datos entre las dos bases que estuvieron
+        /// vivas en paralelo (ej. dos cajas de inventario distintas usando el mismo Code).
+        /// No es una transformacion generica: cada entrada es una decision explicita tomada
+        /// por la vendedora/duenio para ese registro puntual.
+        /// </summary>
+        public IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Overrides { get; } =
+            RowValueOverrides ?? new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
     }
 
     private sealed record ColumnMapping(string Source, string Destination);
