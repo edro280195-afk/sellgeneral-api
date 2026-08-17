@@ -6,12 +6,9 @@ using Microsoft.EntityFrameworkCore;
 namespace EntregasApi.Hubs;
 
 /// <summary>
-/// Hub del "vivo" en tiempo real. La vendedora transmite en Facebook sin
-/// ningún cambio; desde aquí solo anuncia con un toque qué producto está
-/// mostrando ahora mismo, y las compradoras conectadas lo ven aparecer al
-/// instante. No hay ninguna conexión de datos con el video de Facebook — la
-/// sincronización es que la vendedora hace ambas cosas (transmitir y
-/// anunciar) al mismo tiempo.
+/// Hub del "vivo" en tiempo real. La vendedora anuncia con un toque qué
+/// producto está mostrando ahora mismo, y las compradoras conectadas lo ven
+/// aparecer al instante.
 /// </summary>
 public class LiveHub : TenantAwareHubBase
 {

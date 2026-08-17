@@ -9,7 +9,7 @@ namespace EntregasApi.Tests;
 public class ClientsControllerTests
 {
     [Fact]
-    public async Task GetAll_And_GetById_ReturnAliasesAndFacebookProfileUrl()
+    public async Task GetAll_And_GetById_ReturnAliases()
     {
         using var ctx = TestDbContextFactory.Create();
         var client = new Client
@@ -17,7 +17,6 @@ public class ClientsControllerTests
             BusinessId = 1,
             Name = "Sofia",
             NormalizedName = "sofia",
-            FacebookProfileUrl = "https://facebook.com/sofia",
         };
         ctx.Clients.Add(client);
         await ctx.SaveChangesAsync();
@@ -49,7 +48,6 @@ public class ClientsControllerTests
         Assert.Equal(
             new List<string> { "Sofia Live", "Sofi" },
             listed.Aliases);
-        Assert.Equal("https://facebook.com/sofia", listed.FacebookProfileUrl);
 
         var detailResult = await controller.GetById(client.Id);
         var detailOk = Assert.IsType<OkObjectResult>(detailResult.Result);
@@ -58,7 +56,6 @@ public class ClientsControllerTests
         Assert.Equal(
             new List<string> { "Sofia Live", "Sofi" },
             detail.Aliases);
-        Assert.Equal("https://facebook.com/sofia", detail.FacebookProfileUrl);
     }
 
     [Fact]
@@ -67,7 +64,7 @@ public class ClientsControllerTests
         using var ctx = TestDbContextFactory.Create();
         var controller = new ClientsController(ctx, null!, null!, null!);
 
-        var req = new CreateClientRequest("Valeria Gomez", "8112345678", "Av. Constitución 100", "https://facebook.com/valeria.gomez");
+        var req = new CreateClientRequest("Valeria Gomez", "8112345678", "Av. Constitución 100");
         var result = await controller.Create(req);
 
         var createdResult = Assert.IsType<CreatedAtActionResult>(result.Result);
@@ -75,7 +72,6 @@ public class ClientsControllerTests
 
         Assert.Equal("Valeria Gomez", dto.Name);
         Assert.Equal("8112345678", dto.Phone);
-        Assert.Equal("https://facebook.com/valeria.gomez", dto.FacebookProfileUrl);
         Assert.Equal(0, dto.OrdersCount);
         Assert.Equal(0, dto.TotalSpent);
 
@@ -84,4 +80,3 @@ public class ClientsControllerTests
         Assert.Equal("valeria gomez", inDb!.NormalizedName);
     }
 }
-

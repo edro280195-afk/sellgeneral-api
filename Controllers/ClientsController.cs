@@ -15,7 +15,6 @@ public record UpdateClientRequest(
     string Tag,
     string Type,
     string? DeliveryInstructions = null,
-    string? FacebookProfileUrl = null,
     double? Latitude = null,
     double? Longitude = null,
     bool ClearCoordinates = false
@@ -25,12 +24,10 @@ public record CreateClientRequest(
     string Name,
     string? Phone = null,
     string? Address = null,
-    string? FacebookProfileUrl = null,
     string? Tag = null,
     string? Type = null,
     string? DeliveryInstructions = null
 );
-
 
 [ApiController]
 [Route("api/[controller]")]
@@ -65,8 +62,7 @@ public class ClientsController : ControllerBase
         var existing = await _db.Clients
             .Include(c => c.Orders)
             .Include(c => c.Aliases)
-            .FirstOrDefaultAsync(c => c.NormalizedName == normalizedName ||
-                (req.FacebookProfileUrl != null && req.FacebookProfileUrl != "" && c.FacebookProfileUrl == req.FacebookProfileUrl));
+            .FirstOrDefaultAsync(c => c.NormalizedName == normalizedName);
 
         if (existing != null)
         {
@@ -82,8 +78,7 @@ public class ClientsController : ControllerBase
                 existing.DeliveryInstructions,
                 existing.Latitude,
                 existing.Longitude,
-                existing.Aliases.Select(a => a.Alias).ToList(),
-                existing.FacebookProfileUrl
+                existing.Aliases.Select(a => a.Alias).ToList()
             ));
         }
 
@@ -95,7 +90,6 @@ public class ClientsController : ControllerBase
             NormalizedPhone = string.IsNullOrWhiteSpace(req.Phone) ? null : TextNormalizer.NormalizePhone(req.Phone),
             Address = string.IsNullOrWhiteSpace(req.Address) ? null : req.Address.Trim(),
             NormalizedAddress = string.IsNullOrWhiteSpace(req.Address) ? null : TextNormalizer.NormalizeAddress(req.Address),
-            FacebookProfileUrl = string.IsNullOrWhiteSpace(req.FacebookProfileUrl) ? null : req.FacebookProfileUrl.Trim(),
             Type = string.IsNullOrWhiteSpace(req.Type) ? "Nueva" : req.Type.Trim(),
             DeliveryInstructions = string.IsNullOrWhiteSpace(req.DeliveryInstructions) ? null : req.DeliveryInstructions.Trim(),
             CreatedAt = DateTime.UtcNow
@@ -121,9 +115,7 @@ public class ClientsController : ControllerBase
             client.DeliveryInstructions,
             client.Latitude,
             client.Longitude,
-            new List<string>(),
-            client.FacebookProfileUrl
-        ));
+            new List<string>()));
     }
 
     /// <summary>
@@ -198,126 +190,6 @@ public class ClientsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/clients/facebook-import/preview - Recibe filas (nombre + enlace FB) y las cruza
-    /// con las clientas existentes usando matching difuso. Devuelve propuestas para revisión humana.
-    /// NO modifica nada.
-    /// </summary>
-    [HttpPost("facebook-import/preview")]
-    [RequiresFeature(Feature.FacebookImport)]
-    public async Task<ActionResult<FacebookImportPreviewResponse>> FacebookImportPreview([FromBody] FacebookImportPreviewRequest req)
-    {
-        var rows = req.Rows ?? new List<FacebookImportRow>();
-        var items = new List<FacebookImportPreviewItem>();
-
-        // Detectar enlaces duplicados dentro del mismo lote (posible error de captura)
-        var urlCounts = rows
-            .Where(r => !string.IsNullOrWhiteSpace(r.FacebookUrl))
-            .GroupBy(r => r.FacebookUrl.Trim().ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        // Primera pasada: resolver candidatas por nombre
-        var draft = new List<(int Index, FacebookImportRow Row, ResolveClientResponse Resolved)>();
-        for (int i = 0; i < rows.Count; i++)
-        {
-            var row = rows[i];
-            var name = (row.Name ?? string.Empty).Trim();
-            ResolveClientResponse resolved = string.IsNullOrWhiteSpace(name)
-                ? new ResolveClientResponse(new List<ResolveCandidateDto>(), "create")
-                : await _resolver.ResolveAsync(name, null, null);
-            draft.Add((i, row, resolved));
-        }
-
-        // Consultar de un jalón qué clientas top ya tienen Facebook (para avisar sobreescritura)
-        var topClientIds = draft
-            .Where(d => d.Resolved.Candidates.Count > 0)
-            .Select(d => d.Resolved.Candidates[0].ClientId)
-            .Distinct()
-            .ToList();
-        var clientsWithFb = await _db.Clients
-            .Where(c => topClientIds.Contains(c.Id) && c.FacebookProfileUrl != null && c.FacebookProfileUrl != "")
-            .Select(c => c.Id)
-            .ToListAsync();
-        var fbSet = new HashSet<int>(clientsWithFb);
-
-        foreach (var (index, row, resolved) in draft)
-        {
-            var url = (row.FacebookUrl ?? string.Empty).Trim();
-            var urlValid = FacebookLinkHelper.LooksLikeFacebookRef(url);
-            var top = resolved.Candidates.FirstOrDefault();
-
-            // "use" → match claro; "choose" → ambiguo; "create" → sin match confiable
-            var status = resolved.SuggestedAction switch
-            {
-                "use" => "matched",
-                "choose" => "review",
-                _ => "notfound"
-            };
-
-            var dupInBatch = !string.IsNullOrWhiteSpace(url)
-                && urlCounts.TryGetValue(url.ToLowerInvariant(), out var c) && c > 1;
-
-            items.Add(new FacebookImportPreviewItem(
-                RowIndex: index,
-                InputName: row.Name ?? string.Empty,
-                InputUrl: url,
-                UrlValid: urlValid,
-                Status: status,
-                SuggestedClientId: status == "matched" ? top?.ClientId : null,
-                TopScore: top?.Score ?? 0,
-                TopAlreadyHasFacebook: top != null && fbSet.Contains(top.ClientId),
-                DuplicateUrlInBatch: dupInBatch,
-                Candidates: resolved.Candidates));
-        }
-
-        return Ok(new FacebookImportPreviewResponse(items));
-    }
-
-    /// <summary>
-    /// POST /api/clients/facebook-import/apply - Guarda los enlaces ya confirmados por el usuario.
-    /// Solo vincula clientas existentes; nunca crea nuevas.
-    /// </summary>
-    [HttpPost("facebook-import/apply")]
-    [RequiresFeature(Feature.FacebookImport)]
-    public async Task<ActionResult<FacebookImportApplyResponse>> FacebookImportApply([FromBody] FacebookImportApplyRequest req)
-    {
-        var rows = req.Rows ?? new List<FacebookImportApplyRow>();
-        var errors = new List<string>();
-        int applied = 0, skipped = 0;
-
-        // Quedarnos con la última asignación por clienta si viniera repetida
-        var byClient = rows
-            .Where(r => r.ClientId > 0)
-            .GroupBy(r => r.ClientId)
-            .ToDictionary(g => g.Key, g => g.Last().FacebookUrl);
-
-        var ids = byClient.Keys.ToList();
-        var clients = await _db.Clients.Where(c => ids.Contains(c.Id)).ToListAsync();
-        var clientMap = clients.ToDictionary(c => c.Id);
-
-        foreach (var (clientId, rawUrl) in byClient)
-        {
-            var url = (rawUrl ?? string.Empty).Trim();
-            if (!FacebookLinkHelper.LooksLikeFacebookRef(url))
-            {
-                skipped++;
-                errors.Add($"Clienta #{clientId}: enlace inválido, se omitió.");
-                continue;
-            }
-            if (!clientMap.TryGetValue(clientId, out var client))
-            {
-                skipped++;
-                errors.Add($"Clienta #{clientId}: no encontrada, se omitió.");
-                continue;
-            }
-            client.FacebookProfileUrl = url;
-            applied++;
-        }
-
-        await _db.SaveChangesAsync();
-        return Ok(new FacebookImportApplyResponse(applied, skipped, errors));
-    }
-
-    /// <summary>
     /// POST /api/clients/{id}/set-coordinates - Guarda lat/lng explícitas (uso del map picker).
     /// </summary>
     [HttpPost("{id:int}/set-coordinates")]
@@ -367,7 +239,6 @@ public class ClientsController : ControllerBase
                         .ThenBy(a => a.Alias)
                         .Select(a => a.Alias)
                         .ToList(),
-                    c.FacebookProfileUrl
             })
             .OrderByDescending(x => x.TotalSpent)
             .ToListAsync();
@@ -384,8 +255,7 @@ public class ClientsController : ControllerBase
             c.DeliveryInstructions,
             Latitude: c.Latitude,
             Longitude: c.Longitude,
-            Aliases: c.Aliases,
-            FacebookProfileUrl: c.FacebookProfileUrl
+            Aliases: c.Aliases
         )).ToList();
 
         return Ok(clients);
@@ -415,7 +285,6 @@ public class ClientsController : ControllerBase
                     .ThenBy(a => a.Alias)
                     .Select(a => a.Alias)
                     .ToList(),
-                c.FacebookProfileUrl
             })
             .FirstOrDefaultAsync(c => c.Id == id);
 
@@ -433,8 +302,7 @@ public class ClientsController : ControllerBase
             c.DeliveryInstructions,
             Latitude: c.Latitude,
             Longitude: c.Longitude,
-            Aliases: c.Aliases,
-            FacebookProfileUrl: c.FacebookProfileUrl));
+            Aliases: c.Aliases));
     }
 
     [HttpPut("{id:int}")]
@@ -474,7 +342,6 @@ public class ClientsController : ControllerBase
         }
         client.Type = req.Type;
         if (!string.IsNullOrWhiteSpace(req.DeliveryInstructions)) client.DeliveryInstructions = req.DeliveryInstructions;
-        if (req.FacebookProfileUrl != null) client.FacebookProfileUrl = string.IsNullOrWhiteSpace(req.FacebookProfileUrl) ? null : req.FacebookProfileUrl;
 
         if (Enum.TryParse<ClientTag>(req.Tag, true, out var newTag))
         {

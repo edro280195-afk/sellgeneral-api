@@ -100,8 +100,7 @@ public class TandaService : ITandaService
             var normName = TextNormalizer.NormalizeName(nameTrim);
 
 
-            var client = await _db.Clients.FirstOrDefaultAsync(c => c.NormalizedName == normName ||
-                (dto.FacebookProfileUrl != null && dto.FacebookProfileUrl != "" && c.FacebookProfileUrl == dto.FacebookProfileUrl));
+            var client = await _db.Clients.FirstOrDefaultAsync(c => c.NormalizedName == normName);
 
             if (client == null)
             {
@@ -109,7 +108,6 @@ public class TandaService : ITandaService
                 {
                     Name = nameTrim,
                     NormalizedName = normName,
-                    FacebookProfileUrl = string.IsNullOrWhiteSpace(dto.FacebookProfileUrl) ? null : dto.FacebookProfileUrl.Trim(),
                     Type = "Nueva",
                     CreatedAt = DateTime.UtcNow
                 };

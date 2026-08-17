@@ -3,6 +3,7 @@ using EntregasApi.Hubs;
 using EntregasApi.Models;
 using EntregasApi.Services;
 using FirebaseAdmin;
+using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -72,10 +73,6 @@ ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
 // ── HTTP Client (Mercado Pago y otras llamadas externas) ──
 builder.Services.AddHttpClient();
-builder.Services.AddHttpClient("facebook", client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(10);
-}).RemoveAllLoggers();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -100,12 +97,14 @@ builder.Services.AddRateLimiter(options =>
         FixedWindow(context, "otp-send", 5, TimeSpan.FromMinutes(1), "phone"));
     options.AddPolicy("otp-check", context =>
         FixedWindow(context, "otp-check", 10, TimeSpan.FromMinutes(1), "phone"));
-    options.AddPolicy("facebook-auth", context =>
-        FixedWindow(context, "facebook-auth", 5, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(SecurityRateLimitPolicies.FirebaseAuth, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.FirebaseAuth, 10, TimeSpan.FromMinutes(5)));
     options.AddPolicy(SecurityRateLimitPolicies.AuthPassword, context =>
         FixedWindow(context, SecurityRateLimitPolicies.AuthPassword, 8, TimeSpan.FromMinutes(5)));
     options.AddPolicy(SecurityRateLimitPolicies.AuthSession, context =>
         FixedWindow(context, SecurityRateLimitPolicies.AuthSession, 30, TimeSpan.FromMinutes(5)));
+    options.AddPolicy(SecurityRateLimitPolicies.AccountDeletion, context =>
+        FixedWindow(context, SecurityRateLimitPolicies.AccountDeletion, 2, TimeSpan.FromHours(1), "account_id"));
     options.AddPolicy(SecurityRateLimitPolicies.PublicTokenRead, context =>
         FixedWindow(context, SecurityRateLimitPolicies.PublicTokenRead, 120, TimeSpan.FromMinutes(1)));
     options.AddPolicy(SecurityRateLimitPolicies.PublicTokenWrite, context =>
@@ -122,8 +121,6 @@ builder.Services.AddRateLimiter(options =>
         FixedWindow(context, SecurityRateLimitPolicies.LinkEvents, 120, TimeSpan.FromMinutes(1)));
     options.AddPolicy(SecurityRateLimitPolicies.Webhook, context =>
         FixedWindow(context, SecurityRateLimitPolicies.Webhook, 240, TimeSpan.FromMinutes(1)));
-    options.AddPolicy(SecurityRateLimitPolicies.MetaLiveProbe, context =>
-        FixedWindow(context, SecurityRateLimitPolicies.MetaLiveProbe, 3, TimeSpan.FromMinutes(1)));
 });
 
 // ── Plataforma MP: suscripciones (Fase 1.3) ──
@@ -222,6 +219,27 @@ builder.Services.AddScoped<ICurrentAccount, CurrentAccount>();
 builder.Services.AddScoped<IAuthorizationHandler, MembershipAuthorizationHandler>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+builder.Services.AddSingleton<IFirebaseAuthService>(serviceProvider =>
+{
+    try
+    {
+        var firebaseAuth = FirebaseAuth.DefaultInstance;
+        return firebaseAuth is null
+            ? new UnavailableFirebaseAuthService()
+            : new FirebaseAuthService(
+                firebaseAuth,
+                serviceProvider.GetRequiredService<ILogger<FirebaseAuthService>>());
+    }
+    catch (Exception exception)
+    {
+        serviceProvider
+            .GetRequiredService<ILogger<FirebaseAuthService>>()
+            .LogWarning(
+                exception,
+                "Firebase Auth no tiene una credencial Admin disponible; el canje por SMS queda deshabilitado.");
+        return new UnavailableFirebaseAuthService();
+    }
+});
 builder.Services.AddScoped<ISellerTrialPolicy, SellerTrialPolicy>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<ISuppliersService, SuppliersService>();
@@ -261,7 +279,6 @@ builder.Services.AddScoped<IBuyerNotificationService, BuyerNotificationService>(
 builder.Services.AddScoped<IBuyerFollowService, BuyerFollowService>();
 builder.Services.AddScoped<IBuyerDeviceService, BuyerDeviceService>();
 builder.Services.AddScoped<ILiveAnnouncementService, LiveAnnouncementService>();
-builder.Services.AddScoped<IMetaLiveProbeService, MetaLiveProbeService>();
 builder.Services.AddScoped<IStorePostsService, StorePostsService>();
 builder.Services.AddScoped<IBuyerFeedPostsService, BuyerFeedPostsService>();
 builder.Services.AddScoped<IEntitlementService, EntitlementService>();

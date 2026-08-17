@@ -40,8 +40,7 @@ public class AuthControllerDevOtpTests
             new RefreshTokenService(ctx),
             new FakeHostEnvironment(env),
             config,
-            phoneVerification ?? new FakePhoneVerificationService(),
-            new FakeHttpClientFactory());
+            phoneVerification ?? new FakePhoneVerificationService());
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()
@@ -467,18 +466,6 @@ public class AuthControllerDevOtpTests
             "nueva-clave-123",
             account.PasswordHash));
         Assert.NotNull(account.PhoneVerifiedAt);
-    }
-
-    [Fact]
-    public async Task FacebookLogin_NotConfigured_ReturnsNotImplemented()
-    {
-        using var ctx = TestDbContextFactory.Create();
-        var controller = Build(ctx);
-
-        var result = await controller.FacebookLogin(new FacebookLoginRequest("fake-token"));
-
-        var obj = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(StatusCodes.Status501NotImplemented, obj.StatusCode);
     }
 
     private static VerifyPhoneLoginRequest AcceptedVerify(

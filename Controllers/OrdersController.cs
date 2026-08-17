@@ -1209,7 +1209,6 @@ public class OrdersController : ControllerBase
                 order.Client.NormalizedPhone = TextNormalizer.NormalizePhone(order.Client.Phone);
             }
             if (!string.IsNullOrEmpty(req.Type)) order.Client.Type = req.Type;
-            if (req.ClientFacebookProfileUrl != null) order.Client.FacebookProfileUrl = string.IsNullOrWhiteSpace(req.ClientFacebookProfileUrl) ? null : req.ClientFacebookProfileUrl;
 
             // Si el tipo cambió, sincronizamos las caducidades de todos sus pedidos pendientes
             if (typeChanged)

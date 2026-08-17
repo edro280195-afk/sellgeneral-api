@@ -13,7 +13,6 @@ public enum Feature
     Financials,
     TandasRaffles,
     Pos,
-    FacebookImport,
     VipDrops,
     LabelPrinting,
     CamiAssistant,

@@ -21,11 +21,9 @@ public class FeatureGateWiringTests
     [Fact]
     public void PremiumActions_HaveExpectedFeatureGates()
     {
-        AssertMethodGate<ClientsController>(nameof(ClientsController.FacebookImportPreview), Feature.FacebookImport);
-        AssertMethodGate<ClientsController>(nameof(ClientsController.FacebookImportApply), Feature.FacebookImport);
-        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.Merge), Feature.FacebookImport);
-        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.DuplicateSuggestions), Feature.FacebookImport);
-        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.GetMergeAudits), Feature.FacebookImport);
+        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.Merge), Feature.ClientDirectory);
+        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.DuplicateSuggestions), Feature.ClientDirectory);
+        AssertMethodGate<ClientResolutionController>(nameof(ClientResolutionController.GetMergeAudits), Feature.ClientDirectory);
         AssertMethodGate<OrdersController>(nameof(OrdersController.Export), Feature.Exports);
         AssertMethodGate<DriverController>(nameof(DriverController.CamiCommand), Feature.CamiAssistant);
         AssertMethodGate<LiveAnnouncementController>(nameof(LiveAnnouncementController.Start), Feature.LivePush);

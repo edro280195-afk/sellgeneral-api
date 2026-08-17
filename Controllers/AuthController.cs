@@ -1,20 +1,18 @@
-using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Cryptography;
+using System.Globalization;
+using System.Security.Claims;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using EntregasApi.Data;
 using EntregasApi.DTOs;
 using EntregasApi.Models;
 using EntregasApi.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.IdentityModel.Tokens;
 
 namespace EntregasApi.Controllers;
 
@@ -22,18 +20,13 @@ namespace EntregasApi.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private const string FacebookAccountTypeClient = "client";
-    private const string FacebookAccountTypeSeller = "seller";
-    private const string FacebookTokenTypeClassic = "classic";
-    private const string FacebookTokenTypeLimited = "limited";
-    private const string CurrentLegalVersion = "2026-07-08";
-    private const int MaxFacebookTokenLength = 16_384;
+    private const string AccountTypeClient = "client";
+    private const string AccountTypeSeller = "seller";
+    private const string CurrentLegalVersion = "2026-08-17";
     private const double DefaultDepotLat = 27.4861;
     private const double DefaultDepotLng = -99.5069;
     private const string DefaultGeocodingRegion = "Nuevo Laredo, Tamaulipas, MX";
-    private static readonly SemaphoreSlim FacebookJwksLock = new(1, 1);
-    private static IReadOnlyCollection<SecurityKey>? _facebookSigningKeys;
-    private static DateTimeOffset _facebookSigningKeysExpireAt;
+    private const int MaxFirebaseIdTokenLength = 16_384;
 
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
@@ -42,8 +35,8 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IPhoneVerificationService _phoneVerification;
     private readonly ISellerTrialPolicy _sellerTrialPolicy;
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AuthController> _logger;
+    private readonly IFirebaseAuthService? _firebaseAuth;
 
     public AuthController(
         AppDbContext db,
@@ -52,9 +45,9 @@ public class AuthController : ControllerBase
         IHostEnvironment env,
         IConfiguration config,
         IPhoneVerificationService phoneVerification,
-        IHttpClientFactory httpClientFactory,
         ILogger<AuthController>? logger = null,
-        ISellerTrialPolicy? sellerTrialPolicy = null)
+        ISellerTrialPolicy? sellerTrialPolicy = null,
+        IFirebaseAuthService? firebaseAuth = null)
     {
         _db = db;
         _tokenService = tokenService;
@@ -64,8 +57,8 @@ public class AuthController : ControllerBase
         _phoneVerification = phoneVerification;
         _sellerTrialPolicy = sellerTrialPolicy ??
             new SellerTrialPolicy(db, config, TimeProvider.System);
-        _httpClientFactory = httpClientFactory;
         _logger = logger ?? NullLogger<AuthController>.Instance;
+        _firebaseAuth = firebaseAuth;
     }
 
     /// <summary>
@@ -210,6 +203,418 @@ public class AuthController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Elimina la cuenta autenticada. Los datos de identidad, sesiones, tokens
+    /// de dispositivo, seguidores y vínculos personales se eliminan. Los
+    /// registros operativos que tienen valor contable se conservan anonimizados.
+    /// </summary>
+    [HttpDelete("me")]
+    [Authorize(Policy = AuthorizationPolicies.AuthenticatedAccount)]
+    [SkipTenantResolution]
+    [BypassSubscriptionLock]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AccountDeletion)]
+    public async Task<IActionResult> DeleteMyAccount(
+        CancellationToken cancellationToken = default)
+    {
+        var accountId = ReadAuthenticatedAccountId();
+        if (accountId is null) return Unauthorized();
+
+        var account = await _db.Accounts
+            .Include(a => a.Memberships)
+            .SingleOrDefaultAsync(a => a.Id == accountId.Value, cancellationToken);
+        if (account is null) return NotFound(new { message = "La cuenta ya no existe." });
+
+        // Firebase es una identidad externa. Se elimina antes de tocar la base
+        // local; si el proveedor no confirma la baja, no se elimina información
+        // local para que la usuaria pueda reintentar de forma consistente.
+        if (!string.IsNullOrWhiteSpace(account.FirebaseUid) &&
+            (_firebaseAuth is null ||
+             !_firebaseAuth.IsConfigured ||
+             !await _firebaseAuth.DeleteUserAsync(account.FirebaseUid, cancellationToken)))
+        {
+            _logger.LogError(
+                "No se pudo eliminar FirebaseUid {FirebaseUid} de Account {AccountId}.",
+                account.FirebaseUid,
+                account.Id);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "identity_deletion_unavailable",
+                message = "No pudimos completar la eliminación de tu identidad. Inténtalo nuevamente más tarde."
+            });
+        }
+
+        var clients = await _db.Clients
+            .IgnoreQueryFilters()
+            .Where(c => c.AccountId == account.Id)
+            .ToListAsync(cancellationToken);
+        var clientIds = clients.Select(c => c.Id).ToArray();
+
+        // InMemory solo se usa en pruebas unitarias y no soporta transacciones;
+        // PostgreSQL siempre entra por la rama transaccional.
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction =
+            string.Equals(
+                _db.Database.ProviderName,
+                "Microsoft.EntityFrameworkCore.InMemory",
+                StringComparison.Ordinal)
+                ? null
+                : await _db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Estas entidades contienen identidad, sesiones o identificadores
+            // de dispositivo y no tienen valor contable que debamos conservar.
+            _db.RefreshTokens.RemoveRange(
+                await _db.RefreshTokens
+                    .Where(t => t.AccountId == account.Id)
+                    .ToListAsync(cancellationToken));
+            _db.BuyerDeviceTokens.RemoveRange(
+                await _db.BuyerDeviceTokens
+                    .Where(t => t.AccountId == account.Id)
+                    .ToListAsync(cancellationToken));
+            _db.StoreFollowers.RemoveRange(
+                await _db.StoreFollowers
+                    .IgnoreQueryFilters()
+                    .Where(f => f.AccountId == account.Id)
+                    .ToListAsync(cancellationToken));
+            _db.ClientClaimAudits.RemoveRange(
+                await _db.ClientClaimAudits
+                    .Where(a => a.AccountId == account.Id)
+                    .ToListAsync(cancellationToken));
+
+            var notifications = await _db.Notifications
+                .IgnoreQueryFilters()
+                .Where(n => n.AccountId == account.Id ||
+                            (n.ClientId != null && clientIds.Contains(n.ClientId.Value)))
+                .ToListAsync(cancellationToken);
+            _db.Notifications.RemoveRange(notifications);
+
+            if (clientIds.Length > 0)
+            {
+                _db.PushSubscriptions.RemoveRange(
+                    await _db.PushSubscriptions
+                        .IgnoreQueryFilters()
+                        .Where(s => s.ClientId != null && clientIds.Contains(s.ClientId.Value))
+                        .ToListAsync(cancellationToken));
+                _db.ClientAliases.RemoveRange(
+                    await _db.ClientAliases
+                        .IgnoreQueryFilters()
+                        .Where(a => clientIds.Contains(a.ClientId))
+                        .ToListAsync(cancellationToken));
+
+                // Los pedidos y sus pagos siguen perteneciendo al negocio. Se
+                // conserva solo el cascarón operativo, sin datos de contacto.
+                foreach (var client in clients)
+                {
+                    client.AccountId = null;
+                    client.Name = $"Clienta eliminada #{client.Id}";
+                    client.Phone = null;
+                    client.Address = null;
+                    client.Latitude = null;
+                    client.Longitude = null;
+                    client.DeliveryInstructions = null;
+                    client.NormalizedName = string.Empty;
+                    client.NormalizedPhone = null;
+                    client.NormalizedAddress = null;
+                    client.CurrentPoints = 0;
+                    client.LifetimePoints = 0;
+                }
+            }
+
+            // Memberships no contienen historial de negocio por sí mismas y se
+            // eliminan para revocar el acceso del usuario a todos sus negocios.
+            _db.Memberships.RemoveRange(account.Memberships);
+
+            var hasCashHistory = await _db.CashRegisterSessions
+                .IgnoreQueryFilters()
+                .AnyAsync(s => s.AccountId == account.Id, cancellationToken);
+
+            if (hasCashHistory)
+            {
+                // La caja es un registro contable con FK obligatoria a Account.
+                // Se conserva el registro técnico, pero se elimina la identidad.
+                account.DisplayName = "Cuenta eliminada";
+                account.FirstName = null;
+                account.LastName = null;
+                account.ProfilePhotoUrl = null;
+                account.Phone = null;
+                account.PhoneVerifiedAt = null;
+                account.FirebaseUid = null;
+                account.Email = $"deleted-{account.Id}-{Guid.NewGuid():N}@deleted.local";
+                account.PasswordHash = null;
+                account.LegalAcceptedAtUtc = null;
+                account.LegalVersion = null;
+                account.BuyerOnboardingCompletedAtUtc = null;
+                account.SellerOnboardingCompletedAtUtc = null;
+                account.SellerTrialGrantedAtUtc = null;
+                account.SellerTrialEvaluatedAtUtc = null;
+                account.SellerTrialDeviceHash = null;
+                account.SellerTrialRestrictionReason = null;
+            }
+            else
+            {
+                _db.Accounts.Remove(account);
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            _logger.LogError(ex, "Falló la eliminación local de Account {AccountId}.", account.Id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "account_deletion_failed",
+                message = "No pudimos completar la eliminación de tu cuenta. Inténtalo nuevamente."
+            });
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Intercambia un Firebase ID token validado por el JWT y refresh token de
+    /// Nenis. El teléfono nunca se recibe desde Flutter: se obtiene del
+    /// Firebase user record después de validar criptográficamente el token.
+    /// </summary>
+    [HttpPost("firebase")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.FirebaseAuth)]
+    public async Task<ActionResult<LoginResponse>> FirebaseLogin(
+        FirebaseLoginRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(req.IdToken) ||
+            req.IdToken.Length > MaxFirebaseIdTokenLength)
+        {
+            return BadRequest(new { message = "La sesión de Firebase no es válida." });
+        }
+
+        if (_firebaseAuth is null || !_firebaseAuth.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "firebase_auth_not_configured",
+                message = "La autenticación no está disponible por el momento."
+            });
+        }
+
+        var identity = await _firebaseAuth.VerifyIdTokenAsync(
+            req.IdToken,
+            cancellationToken);
+        if (identity is null)
+        {
+            return Unauthorized(new
+            {
+                error = "invalid_firebase_token",
+                message = "No pudimos validar tu sesión."
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(identity.Uid) || identity.Uid.Length > 128)
+        {
+            return Unauthorized(new
+            {
+                error = "invalid_firebase_identity",
+                message = "No pudimos validar tu sesión."
+            });
+        }
+
+        if (identity.IsDisabled)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "firebase_account_disabled",
+                message = "Tu cuenta está deshabilitada."
+            });
+        }
+
+        var phone = PhoneNumberNormalizer.NormalizeE164(identity.PhoneNumber);
+        if (phone is null)
+        {
+            return Unauthorized(new
+            {
+                error = "firebase_phone_missing",
+                message = "No pudimos confirmar el teléfono de tu cuenta."
+            });
+        }
+
+        var accountType = NormalizeAccountType(req.AccountType);
+        if (accountType is null)
+        {
+            return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
+        }
+
+        var accountByFirebaseUid = await _db.Accounts
+            .Include(a => a.Memberships)
+                .ThenInclude(m => m.Business)
+            .FirstOrDefaultAsync(a => a.FirebaseUid == identity.Uid, cancellationToken);
+
+        var nationalPhone = PhoneNumberNormalizer.ToMexicanNational(phone);
+        var phoneCandidates = await _db.Accounts
+            .Include(a => a.Memberships)
+                .ThenInclude(m => m.Business)
+            .Where(a => a.Phone == phone || a.Phone == nationalPhone)
+            .ToListAsync(cancellationToken);
+
+        if (phoneCandidates.Count > 1)
+        {
+            _logger.LogError(
+                "Hay más de una cuenta local para el teléfono verificado de Firebase; se bloqueó el canje.");
+            return Conflict(new
+            {
+                error = "phone_identity_conflict",
+                message = "No pudimos vincular tu teléfono con una sola cuenta."
+            });
+        }
+
+        var accountByPhone = phoneCandidates.SingleOrDefault();
+        if (accountByFirebaseUid is not null &&
+            accountByPhone is not null &&
+            accountByFirebaseUid.Id != accountByPhone.Id)
+        {
+            return Conflict(new
+            {
+                error = "firebase_identity_conflict",
+                message = "No pudimos vincular tu teléfono con esa cuenta."
+            });
+        }
+
+        var account = accountByFirebaseUid ?? accountByPhone;
+        var isNewAccount = account is null;
+
+        if (accountType == AccountTypeSeller &&
+            (account?.Memberships.Count ?? 0) == 0)
+        {
+            var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
+            if (sellerData.Error is not null)
+            {
+                return Conflict(new
+                {
+                    error = "firebase_profile_required",
+                    needsProfile = true,
+                    message = sellerData.Error
+                });
+            }
+        }
+
+        if (isNewAccount)
+        {
+            var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+            if (legalError is not null) return legalError;
+        }
+
+        var email = NormalizeOptionalEmail(req.Email);
+        if (req.Email is not null && email is null)
+        {
+            return BadRequest(new { message = "Escribe un correo válido." });
+        }
+
+        if (email is not null)
+        {
+            var emailOwner = await _db.Accounts
+                .FirstOrDefaultAsync(a => a.Email == email, cancellationToken);
+            if (emailOwner is not null && emailOwner.Id != (account?.Id ?? 0))
+            {
+                return Conflict(new { message = "Ese correo ya está registrado con otra cuenta." });
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.Password) &&
+            req.Password.Length is < 8 or > 128)
+        {
+            return BadRequest(new { message = "La contraseña debe tener entre 8 y 128 caracteres." });
+        }
+
+        if (account is null)
+        {
+            var firstName = NormalizeOptional(req.FirstName, 100);
+            var lastName = NormalizeOptional(req.LastName, 100);
+            var displayName = ComposeDisplayName(firstName, lastName);
+            account = new Account
+            {
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Clienta" : displayName,
+                FirstName = firstName,
+                LastName = lastName,
+                Phone = phone,
+                FirebaseUid = identity.Uid,
+                PhoneVerifiedAt = DateTime.UtcNow,
+                Email = email,
+                PasswordHash = BuildOptionalPasswordHash(req.Password)
+            };
+            MarkLegalAccepted(account, req.LegalVersion);
+            _db.Accounts.Add(account);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(account.FirebaseUid) &&
+                !string.Equals(account.FirebaseUid, identity.Uid, StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = "firebase_identity_conflict",
+                    message = "No pudimos vincular tu teléfono con esa cuenta."
+                });
+            }
+
+            if (!PhoneNumberNormalizer.MatchesStoredPhone(account.Phone, phone))
+            {
+                return Conflict(new
+                {
+                    error = "firebase_phone_conflict",
+                    message = "El teléfono verificado no coincide con esa cuenta."
+                });
+            }
+
+            account.FirebaseUid = identity.Uid;
+            account.Phone = phone;
+            account.PhoneVerifiedAt ??= DateTime.UtcNow;
+            if (string.IsNullOrWhiteSpace(account.FirstName))
+                account.FirstName = NormalizeOptional(req.FirstName, 100);
+            if (string.IsNullOrWhiteSpace(account.LastName))
+                account.LastName = NormalizeOptional(req.LastName, 100);
+            if (string.IsNullOrWhiteSpace(account.DisplayName))
+                account.DisplayName = ComposeDisplayName(account.FirstName, account.LastName);
+            if (account.Email is null) account.Email = email;
+            if (account.PasswordHash is null)
+                account.PasswordHash = BuildOptionalPasswordHash(req.Password);
+        }
+
+        if (accountType == AccountTypeSeller && account.Memberships.Count == 0)
+        {
+            if (account.LegalAcceptedAtUtc is null)
+            {
+                var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+                if (legalError is not null) return legalError;
+                MarkLegalAccepted(account, req.LegalVersion);
+            }
+
+            var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
+            if (sellerData.Error is not null)
+                return Conflict(new { error = "firebase_profile_required", needsProfile = true, message = sellerData.Error });
+
+            await AddSellerBusinessAsync(
+                account,
+                sellerData.Name!,
+                sellerData.City,
+                cancellationToken);
+        }
+
+        await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
+    }
+
     // ── Compradora: registro por teléfono + contraseña (confirmación por WhatsApp) ──
 
     /// <summary>
@@ -251,7 +656,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Escribe un correo válido." });
         }
 
-        var accountType = NormalizeFacebookAccountType(req.AccountType);
+        var accountType = NormalizeAccountType(req.AccountType);
         if (accountType is null)
         {
             return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
@@ -260,7 +665,7 @@ public class AuthController : ControllerBase
         var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
         if (legalError is not null) return legalError;
 
-        if (accountType == FacebookAccountTypeSeller)
+        if (accountType == AccountTypeSeller)
         {
             var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
             if (sellerData.Error is not null)
@@ -269,8 +674,7 @@ public class AuthController : ControllerBase
             }
         }
 
-        var existing = await _db.Accounts
-            .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
+        var existing = await LoadAccountByPhoneAsync(phone, cancellationToken);
 
         if (existing is not null && existing.PhoneVerifiedAt is not null)
         {
@@ -312,7 +716,6 @@ public class AuthController : ControllerBase
             existing.PasswordHash = passwordHash;
             // La nueva prueba de posesión por teléfono reemplaza cualquier
             // identidad social pendiente que nunca llegó a verificarse.
-            existing.FacebookUserId = null;
             existing.ProfilePhotoUrl = null;
             MarkLegalAccepted(existing, req.LegalVersion);
         }
@@ -345,10 +748,7 @@ public class AuthController : ControllerBase
         var codeCheck = await CheckVerificationCodeAsync(phone, req.Code.Trim(), cancellationToken);
         if (codeCheck is not null) return codeCheck;
 
-        var account = await _db.Accounts
-            .Include(a => a.Memberships)
-                .ThenInclude(m => m.Business)
-            .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
+        var account = await LoadAccountByPhoneAsync(phone, cancellationToken);
 
         if (account is null)
         {
@@ -358,7 +758,7 @@ public class AuthController : ControllerBase
             });
         }
 
-        var accountType = NormalizeFacebookAccountType(req.AccountType);
+        var accountType = NormalizeAccountType(req.AccountType);
         if (!string.IsNullOrWhiteSpace(req.AccountType) && accountType is null)
         {
             return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
@@ -369,7 +769,7 @@ public class AuthController : ControllerBase
             account.PhoneVerifiedAt = DateTime.UtcNow;
         }
 
-        if (accountType == FacebookAccountTypeSeller && account.Memberships.Count == 0)
+        if (accountType == AccountTypeSeller && account.Memberships.Count == 0)
         {
             if (account.LegalAcceptedAtUtc is null)
             {
@@ -412,10 +812,7 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Teléfono o contraseña incorrectos." });
         }
 
-        var account = await _db.Accounts
-            .Include(a => a.Memberships)
-                .ThenInclude(m => m.Business)
-            .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
+        var account = await LoadAccountByPhoneAsync(phone, cancellationToken);
 
         if (account?.PasswordHash is null ||
             !BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
@@ -458,10 +855,14 @@ public class AuthController : ControllerBase
             });
         }
 
+        var e164Phone = PhoneNumberNormalizer.NormalizeE164(phone);
+        var mexicanNationalPhone = PhoneNumberNormalizer.ToMexicanNational(e164Phone);
         var accountExists = await _db.Accounts
             .AsNoTracking()
             .AnyAsync(
-                account => account.Phone == phone,
+                account => account.Phone == phone ||
+                           account.Phone == e164Phone ||
+                           account.Phone == mexicanNationalPhone,
                 cancellationToken);
 
         if (IsDevOtpEnabled)
@@ -591,7 +992,7 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            message = "Contraseña actualizada. Ya puedes continuar con Facebook."
+            message = "Contraseña actualizada. Ya puedes continuar con tu cuenta."
         });
     }
 
@@ -636,10 +1037,7 @@ public class AuthController : ControllerBase
         var codeCheck = await CheckVerificationCodeAsync(phone, req.Code.Trim(), cancellationToken);
         if (codeCheck is not null) return codeCheck;
 
-        var account = await _db.Accounts
-            .Include(a => a.Memberships)
-                .ThenInclude(m => m.Business)
-            .FirstOrDefaultAsync(a => a.Phone == phone, cancellationToken);
+        var account = await LoadAccountByPhoneAsync(phone, cancellationToken);
 
         if (account is null)
         {
@@ -663,13 +1061,13 @@ public class AuthController : ControllerBase
             account.PhoneVerifiedAt = DateTime.UtcNow;
         }
 
-        var accountType = NormalizeFacebookAccountType(req.AccountType);
+        var accountType = NormalizeAccountType(req.AccountType);
         if (!string.IsNullOrWhiteSpace(req.AccountType) && accountType is null)
         {
             return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
         }
 
-        if (accountType == FacebookAccountTypeSeller && account.Memberships.Count == 0)
+        if (accountType == AccountTypeSeller && account.Memberships.Count == 0)
         {
             if (account.LegalAcceptedAtUtc is null)
             {
@@ -694,298 +1092,6 @@ public class AuthController : ControllerBase
         await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
 
         return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
-    }
-
-    // ── Facebook Login ──
-
-    /// <summary>
-    /// Valida Facebook y devuelve sesión solo cuando la identidad ya está
-    /// vinculada y el teléfono fue confirmado. Las altas o enlaces incompletos
-    /// responden 409 con los datos que la app debe solicitar.
-    /// </summary>
-    [HttpPost("facebook")]
-    [EnableRateLimiting("facebook-auth")]
-    public async Task<ActionResult<LoginResponse>> FacebookLogin(
-        FacebookLoginRequest req,
-        CancellationToken cancellationToken = default)
-    {
-        var accountType = NormalizeFacebookAccountType(req.AccountType);
-        if (accountType is null)
-        {
-            return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
-        }
-
-        var tokenType = NormalizeFacebookTokenType(req.TokenType);
-        if (tokenType is null)
-        {
-            return BadRequest(new { message = "El tipo de token de Facebook no es válido." });
-        }
-
-        var providerError = ValidateFacebookProviderConfiguration(tokenType);
-        if (providerError is not null) return providerError;
-
-        if (string.IsNullOrWhiteSpace(req.AccessToken) ||
-            req.AccessToken.Length > MaxFacebookTokenLength)
-        {
-            return BadRequest(new { message = "El token de Facebook no es válido." });
-        }
-
-        var profile = await ValidateFacebookProfileAsync(
-            req.AccessToken,
-            tokenType,
-            cancellationToken);
-        if (profile is null)
-        {
-            return Unauthorized(new
-            {
-                error = "invalid_fb_token",
-                message = "No pudimos validar tu Facebook. Intenta de nuevo."
-            });
-        }
-
-        var account = await LoadAccountByFacebookIdAsync(profile.Id, cancellationToken);
-        if (account is null)
-        {
-            return Conflict(BuildFacebookContinuation(
-                profile,
-                accountType,
-                account: null,
-                requiresExistingPassword: false));
-        }
-
-        var needsSellerBusiness =
-            accountType == FacebookAccountTypeSeller &&
-            account.Memberships.Count == 0;
-        if (account.PhoneVerifiedAt is null || needsSellerBusiness)
-        {
-            return Conflict(BuildFacebookContinuation(
-                profile,
-                accountType,
-                account,
-                requiresExistingPassword: false));
-        }
-
-        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
-    }
-
-    /// <summary>
-    /// Completa los datos de una identidad de Facebook. Si coincide con una
-    /// cuenta existente, exige la contraseña actual antes de vincularla. Una
-    /// cuenta con teléfono pendiente recibe OTP y no obtiene JWT todavía.
-    /// </summary>
-    [HttpPost("facebook/complete")]
-    [EnableRateLimiting("facebook-auth")]
-    public async Task<ActionResult<LoginResponse>> CompleteFacebookProfile(
-        FacebookCompleteProfileRequest req,
-        CancellationToken cancellationToken = default)
-    {
-        var accountType = NormalizeFacebookAccountType(req.AccountType);
-        if (accountType is null)
-        {
-            return BadRequest(new { message = "El tipo de cuenta debe ser client o seller." });
-        }
-
-        var tokenType = NormalizeFacebookTokenType(req.TokenType);
-        if (tokenType is null)
-        {
-            return BadRequest(new { message = "El tipo de token de Facebook no es válido." });
-        }
-
-        var providerError = ValidateFacebookProviderConfiguration(tokenType);
-        if (providerError is not null) return providerError;
-
-        if (string.IsNullOrWhiteSpace(req.AccessToken) ||
-            req.AccessToken.Length > MaxFacebookTokenLength)
-        {
-            return BadRequest(new { message = "El token de Facebook no es válido." });
-        }
-
-        var firstName = req.FirstName?.Trim();
-        var lastName = req.LastName?.Trim();
-        if (string.IsNullOrWhiteSpace(firstName) || firstName.Length > 100 ||
-            string.IsNullOrWhiteSpace(lastName) || lastName.Length > 100)
-        {
-            return BadRequest(new { message = "Escribe nombre y apellido válidos." });
-        }
-
-        var email = NormalizeEmail(req.Email ?? "");
-        if (email.Length > 150 || !LooksLikeEmail(email))
-        {
-            return BadRequest(new { message = "Escribe un correo válido." });
-        }
-
-        var phone = _phoneVerification.NormalizePhone(req.Phone);
-        if (string.IsNullOrWhiteSpace(phone))
-        {
-            return BadRequest(new { message = "Escribe un teléfono mexicano de 10 dígitos con lada." });
-        }
-
-        var sellerData = ValidateSellerBusiness(req.BusinessName, req.City);
-        if (accountType == FacebookAccountTypeSeller && sellerData.Error is not null)
-        {
-            return BadRequest(new { message = sellerData.Error });
-        }
-
-        var profile = await ValidateFacebookProfileAsync(
-            req.AccessToken,
-            tokenType,
-            cancellationToken);
-        if (profile is null)
-        {
-            return Unauthorized(new
-            {
-                error = "invalid_fb_token",
-                message = "No pudimos validar tu Facebook. Intenta de nuevo."
-            });
-        }
-
-        var facebookAccount = await LoadAccountByFacebookIdAsync(profile.Id, cancellationToken);
-        var phoneOwner = await LoadAccountByPhoneAsync(phone, cancellationToken);
-        var emailOwner = await LoadAccountByEmailAsync(email, cancellationToken);
-
-        if (phoneOwner is not null &&
-            emailOwner is not null &&
-            phoneOwner.Id != emailOwner.Id)
-        {
-            return Conflict(new
-            {
-                error = "identity_conflict",
-                message = "El correo y el teléfono pertenecen a cuentas distintas. Entra con tu método habitual."
-            });
-        }
-
-        var account = facebookAccount;
-        var willCreateAccount = account is null && phoneOwner is null && emailOwner is null;
-        var candidateAccount = account ?? phoneOwner ?? emailOwner;
-        var willCreateSellerBusiness =
-            accountType == FacebookAccountTypeSeller &&
-            (candidateAccount is null || candidateAccount.Memberships.Count == 0);
-        if ((willCreateAccount || willCreateSellerBusiness) &&
-            candidateAccount?.LegalAcceptedAtUtc is null)
-        {
-            var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
-            if (legalError is not null) return legalError;
-        }
-
-        if (account is null)
-        {
-            account = phoneOwner ?? emailOwner;
-            if (account is not null)
-            {
-                if (!string.IsNullOrWhiteSpace(account.FacebookUserId) &&
-                    !string.Equals(account.FacebookUserId, profile.Id, StringComparison.Ordinal))
-                {
-                    return Conflict(new
-                    {
-                        error = "identity_conflict",
-                        message = "Esa cuenta ya tiene otro Facebook vinculado."
-                    });
-                }
-
-                if (account.PasswordHash is null ||
-                    string.IsNullOrWhiteSpace(req.ExistingPassword) ||
-                    !BCrypt.Net.BCrypt.Verify(req.ExistingPassword, account.PasswordHash))
-                {
-                    return Conflict(BuildFacebookContinuation(
-                        profile,
-                        accountType,
-                        account,
-                        requiresExistingPassword: true,
-                        phoneOverride: phone,
-                        emailOverride: email));
-                }
-
-                account.FacebookUserId = profile.Id;
-            }
-            else
-            {
-                account = new Account
-                {
-                    DisplayName = ComposeDisplayName(firstName, lastName),
-                    FirstName = firstName,
-                    LastName = lastName,
-                    FacebookUserId = profile.Id,
-                    Phone = phone,
-                    Email = email,
-                    ProfilePhotoUrl = profile.PictureUrl
-                };
-                MarkLegalAccepted(account, req.LegalVersion);
-                _db.Accounts.Add(account);
-            }
-        }
-
-        if (req.AcceptedLegal && account.LegalAcceptedAtUtc is null)
-        {
-            MarkLegalAccepted(account, req.LegalVersion);
-        }
-
-        if ((phoneOwner is not null && phoneOwner.Id != account.Id) ||
-            (emailOwner is not null && emailOwner.Id != account.Id))
-        {
-            return Conflict(new
-            {
-                error = "identity_conflict",
-                message = "No pudimos unir esos datos en una sola cuenta."
-            });
-        }
-
-        if (!string.IsNullOrWhiteSpace(account.Phone) &&
-            account.PhoneVerifiedAt is not null &&
-            !string.Equals(account.Phone, phone, StringComparison.Ordinal))
-        {
-            return Conflict(new
-            {
-                error = "verified_phone_change_not_allowed",
-                message = "Para cambiar tu teléfono verificado, entra primero con tu método habitual."
-            });
-        }
-
-        account.Phone = phone;
-        if (string.IsNullOrWhiteSpace(account.Email)) account.Email = email;
-        if (string.IsNullOrWhiteSpace(account.FirstName)) account.FirstName = firstName;
-        if (string.IsNullOrWhiteSpace(account.LastName)) account.LastName = lastName;
-        if (string.IsNullOrWhiteSpace(account.ProfilePhotoUrl))
-        {
-            account.ProfilePhotoUrl = profile.PictureUrl;
-        }
-        if (string.IsNullOrWhiteSpace(account.DisplayName) ||
-            string.Equals(account.DisplayName, "Clienta", StringComparison.OrdinalIgnoreCase))
-        {
-            account.DisplayName = ComposeDisplayName(firstName, lastName);
-        }
-
-        if (account.PhoneVerifiedAt is not null)
-        {
-            if (accountType == FacebookAccountTypeSeller && account.Memberships.Count == 0)
-            {
-                await AddSellerBusinessAsync(
-                    account,
-                    sellerData.Name!,
-                    sellerData.City,
-                    cancellationToken);
-            }
-
-            await SaveChangesHandlingTrialRaceAsync(account, cancellationToken);
-            return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
-        }
-
-        try
-        {
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException)
-        {
-            return Conflict(new
-            {
-                error = "identity_conflict",
-                message = "Ya existe una cuenta con esos datos."
-            });
-        }
-
-        return await SendFacebookVerificationCodeAsync(
-            account,
-            accountType,
-            cancellationToken);
     }
 
     // ── Helpers ──
@@ -1030,101 +1136,15 @@ public class AuthController : ControllerBase
         return BuildLoginResponseCore(account, memberships, refreshToken);
     }
 
-    private ActionResult<LoginResponse>? ValidateFacebookProviderConfiguration(
-        string tokenType)
-    {
-        var appSecret = _config["Facebook:AppSecret"];
-        var appId = _config["Facebook:AppId"];
-        var hasAppId = !string.IsNullOrWhiteSpace(appId);
-        var hasRequiredSecret =
-            tokenType == FacebookTokenTypeLimited ||
-            !string.IsNullOrWhiteSpace(appSecret);
-        if (hasAppId && hasRequiredSecret)
-        {
-            return null;
-        }
-
-        return StatusCode(StatusCodes.Status501NotImplemented, new
-        {
-            error = "facebook_provider_not_configured",
-            message = "Facebook aún no está disponible. Usa teléfono o correo por ahora."
-        });
-    }
-
-    private static string? NormalizeFacebookAccountType(string? accountType)
+    private static string? NormalizeAccountType(string? accountType)
     {
         var normalized = accountType?.Trim().ToLowerInvariant();
         return normalized switch
         {
-            FacebookAccountTypeClient => FacebookAccountTypeClient,
-            FacebookAccountTypeSeller => FacebookAccountTypeSeller,
+            AccountTypeClient => AccountTypeClient,
+            AccountTypeSeller => AccountTypeSeller,
             _ => null
         };
-    }
-
-    private static string? NormalizeFacebookTokenType(string? tokenType)
-    {
-        var normalized = tokenType?.Trim().ToLowerInvariant();
-        return normalized switch
-        {
-            FacebookTokenTypeClassic => FacebookTokenTypeClassic,
-            FacebookTokenTypeLimited => FacebookTokenTypeLimited,
-            _ => null
-        };
-    }
-
-    private FacebookContinuationResponse BuildFacebookContinuation(
-        FacebookProfile profile,
-        string accountType,
-        Account? account,
-        bool requiresExistingPassword,
-        string? phoneOverride = null,
-        string? emailOverride = null)
-    {
-        var firstName = FirstNonBlank(account?.FirstName, profile.FirstName);
-        var lastName = FirstNonBlank(account?.LastName, profile.LastName);
-        var email = FirstNonBlank(emailOverride, account?.Email, profile.Email);
-        var phone = FirstNonBlank(phoneOverride, account?.Phone);
-        var missingFields = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(firstName)) missingFields.Add("firstName");
-        if (string.IsNullOrWhiteSpace(lastName)) missingFields.Add("lastName");
-        if (string.IsNullOrWhiteSpace(email)) missingFields.Add("email");
-        if (string.IsNullOrWhiteSpace(phone)) missingFields.Add("phone");
-        if (accountType == FacebookAccountTypeSeller &&
-            (account is null || account.Memberships.Count == 0))
-        {
-            missingFields.Add("businessName");
-        }
-
-        return new FacebookContinuationResponse(
-            Error: requiresExistingPassword
-                ? "facebook_account_link_required"
-                : "facebook_profile_required",
-            Message: requiresExistingPassword
-                ? "Para proteger una cuenta que ya usa esos datos, escribe su contraseña actual."
-                : "Completa tus datos para continuar con Facebook.",
-            AccountType: accountType,
-            NeedsProfile: true,
-            NeedsPhoneVerification: account?.PhoneVerifiedAt is null,
-            RequiresExistingPassword: requiresExistingPassword,
-            FirstName: firstName,
-            LastName: lastName,
-            Email: email,
-            Phone: phone,
-            MissingFields: missingFields);
-    }
-
-    private async Task<Account?> LoadAccountByFacebookIdAsync(
-        string facebookUserId,
-        CancellationToken cancellationToken)
-    {
-        return await _db.Accounts
-            .Include(a => a.Memberships)
-                .ThenInclude(m => m.Business)
-            .FirstOrDefaultAsync(
-                a => a.FacebookUserId == facebookUserId,
-                cancellationToken);
     }
 
     private async Task<Account?> LoadAccountByPhoneAsync(
@@ -1145,65 +1165,6 @@ public class AuthController : ControllerBase
             .Include(a => a.Memberships)
                 .ThenInclude(m => m.Business)
             .FirstOrDefaultAsync(a => a.Email == email, cancellationToken);
-    }
-
-    private async Task<ActionResult<LoginResponse>> SendFacebookVerificationCodeAsync(
-        Account account,
-        string accountType,
-        CancellationToken cancellationToken)
-    {
-        var phone = account.Phone!;
-        if (IsDevOtpEnabled)
-        {
-            return Accepted(new FacebookContinuationResponse(
-                Error: "phone_verification_required",
-                Message: $"Modo DEV: usa el código {DevOtpCode} para confirmar.",
-                AccountType: accountType,
-                NeedsProfile: false,
-                NeedsPhoneVerification: true,
-                RequiresExistingPassword: false,
-                FirstName: account.FirstName,
-                LastName: account.LastName,
-                Email: account.Email,
-                Phone: phone,
-                MissingFields: [],
-                ProviderConfigured: _phoneVerification.IsConfigured,
-                DevMode: true));
-        }
-
-        if (!_phoneVerification.IsConfigured)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
-            {
-                error = "otp_provider_not_configured",
-                message = "El servicio de WhatsApp aún no está configurado."
-            });
-        }
-
-        var outcome = await _phoneVerification.SendCodeAsync(phone, cancellationToken);
-        if (outcome != PhoneVerificationOutcome.Sent)
-        {
-            return StatusCode(StatusCodes.Status502BadGateway, new
-            {
-                error = "otp_send_failed",
-                message = "No pudimos enviar el código por WhatsApp. Intenta de nuevo."
-            });
-        }
-
-        return Accepted(new FacebookContinuationResponse(
-            Error: "phone_verification_required",
-            Message: "Código enviado por WhatsApp.",
-            AccountType: accountType,
-            NeedsProfile: false,
-            NeedsPhoneVerification: true,
-            RequiresExistingPassword: false,
-            FirstName: account.FirstName,
-            LastName: account.LastName,
-            Email: account.Email,
-            Phone: phone,
-            MissingFields: [],
-            ProviderConfigured: true,
-            DevMode: false));
     }
 
     private static (string? Name, string? City, string? Error) ValidateSellerBusiness(
@@ -1350,6 +1311,29 @@ public class AuthController : ControllerBase
             : normalized[..maxLength];
     }
 
+    private int? ReadAuthenticatedAccountId()
+    {
+        var raw = User.FindFirstValue("account_id")
+            ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            ?? User.FindFirstValue("sub");
+
+        return int.TryParse(raw, out var accountId) ? accountId : null;
+    }
+
+    private static string? NormalizeOptionalEmail(string? value)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    private static string? BuildOptionalPasswordHash(string? password)
+    {
+        return string.IsNullOrWhiteSpace(password)
+            ? null
+            : BCrypt.Net.BCrypt.HashPassword(password);
+    }
+
     private static string Slugify(string value)
     {
         var normalized = value.Normalize(NormalizationForm.FormD);
@@ -1382,10 +1366,6 @@ public class AuthController : ControllerBase
         return slug.ToString().Trim('-');
     }
 
-    /// <summary>
-    /// Envía el código de verificación (DEV: código fijo; PROD: Twilio Verify por
-    /// WhatsApp) y devuelve el <see cref="ActionResult"/> apropiado para el cliente.
-    /// </summary>
     private async Task<ActionResult> SendVerificationCodeAsync(
         string phone,
         CancellationToken cancellationToken)
@@ -1433,8 +1413,9 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>Reenvío best-effort (no expone errores del proveedor al cliente).</summary>
-    private async Task TrySendVerificationCodeAsync(string phone, CancellationToken cancellationToken)
+    private async Task TrySendVerificationCodeAsync(
+        string phone,
+        CancellationToken cancellationToken)
     {
         if (IsDevOtpEnabled || !_phoneVerification.IsConfigured) return;
         try
@@ -1457,10 +1438,10 @@ public class AuthController : ControllerBase
                 message = "El código debe tener 6 dígitos."
             });
         }
+
         return null;
     }
 
-    /// <summary>Valida el código; devuelve null si es correcto o un error listo para responder.</summary>
     private async Task<ActionResult?> CheckVerificationCodeAsync(
         string phone,
         string code,
@@ -1500,209 +1481,6 @@ public class AuthController : ControllerBase
         return null;
     }
 
-    private Task<FacebookProfile?> ValidateFacebookProfileAsync(
-        string accessToken,
-        string tokenType,
-        CancellationToken cancellationToken)
-    {
-        return tokenType == FacebookTokenTypeLimited
-            ? ValidateLimitedFacebookProfileAsync(accessToken, cancellationToken)
-            : ValidateClassicFacebookProfileAsync(accessToken, cancellationToken);
-    }
-
-    private async Task<FacebookProfile?> ValidateClassicFacebookProfileAsync(
-        string accessToken,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var appId = _config["Facebook:AppId"]!.Trim();
-            var appSecret = _config["Facebook:AppSecret"]!.Trim();
-            var graphApiVersion = _config["Facebook:GraphApiVersion"]?.Trim();
-            if (string.IsNullOrWhiteSpace(graphApiVersion) ||
-                graphApiVersion[0] != 'v' ||
-                graphApiVersion.Skip(1).Any(c => !char.IsDigit(c) && c != '.'))
-            {
-                graphApiVersion = "v25.0";
-            }
-
-            var client = _httpClientFactory.CreateClient("facebook");
-            var debugUrl =
-                $"https://graph.facebook.com/{graphApiVersion}/debug_token" +
-                $"?input_token={Uri.EscapeDataString(accessToken)}" +
-                $"&access_token={Uri.EscapeDataString($"{appId}|{appSecret}")}";
-            using var debugResponse = await client.GetAsync(debugUrl, cancellationToken);
-            if (!debugResponse.IsSuccessStatusCode) return null;
-
-            await using var debugStream =
-                await debugResponse.Content.ReadAsStreamAsync(cancellationToken);
-            var debug = await JsonSerializer.DeserializeAsync<FacebookTokenDebugEnvelope>(
-                debugStream,
-                cancellationToken: cancellationToken);
-            if (debug?.Data is not
-                {
-                    IsValid: true,
-                    UserId.Length: > 0
-                } tokenData ||
-                !string.Equals(tokenData.AppId, appId, StringComparison.Ordinal) ||
-                tokenData.ExpiresAt > 0 &&
-                DateTimeOffset.FromUnixTimeSeconds(tokenData.ExpiresAt) <= DateTimeOffset.UtcNow)
-            {
-                return null;
-            }
-
-            var proof = Convert.ToHexString(
-                HMACSHA256.HashData(
-                    Encoding.UTF8.GetBytes(appSecret),
-                    Encoding.UTF8.GetBytes(accessToken)))
-                .ToLowerInvariant();
-
-            var url =
-                $"https://graph.facebook.com/{graphApiVersion}/me" +
-                "?fields=id,first_name,last_name,name,email,picture.type(large)" +
-                $"&access_token={Uri.EscapeDataString(accessToken)}" +
-                $"&appsecret_proof={proof}";
-
-            using var response = await client.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode) return null;
-
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var profile = await JsonSerializer.DeserializeAsync<FacebookProfile>(
-                stream,
-                cancellationToken: cancellationToken);
-            return profile is not null &&
-                   string.Equals(profile.Id, tokenData.UserId, StringComparison.Ordinal)
-                ? profile
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private async Task<FacebookProfile?> ValidateLimitedFacebookProfileAsync(
-        string authenticationToken,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var appId = _config["Facebook:AppId"]!.Trim();
-            var signingKeys = await GetFacebookSigningKeysAsync(
-                forceRefresh: false,
-                cancellationToken);
-            if (signingKeys is null) return null;
-
-            for (var attempt = 0; attempt < 2; attempt++)
-            {
-                try
-                {
-                    var handler = new JwtSecurityTokenHandler
-                    {
-                        MapInboundClaims = false
-                    };
-                    var principal = handler.ValidateToken(
-                        authenticationToken,
-                        new TokenValidationParameters
-                        {
-                            RequireSignedTokens = true,
-                            ValidateIssuerSigningKey = true,
-                            IssuerSigningKeys = signingKeys,
-                            ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
-                            ValidateIssuer = true,
-                            ValidIssuer = "https://www.facebook.com",
-                            ValidateAudience = true,
-                            ValidAudience = appId,
-                            RequireAudience = true,
-                            RequireExpirationTime = true,
-                            ValidateLifetime = true,
-                            ClockSkew = TimeSpan.FromMinutes(2)
-                        },
-                        out var validatedToken);
-
-                    if (validatedToken is not JwtSecurityToken jwt ||
-                        !string.Equals(
-                            jwt.Header.Alg,
-                            SecurityAlgorithms.RsaSha256,
-                            StringComparison.Ordinal))
-                    {
-                        return null;
-                    }
-
-                    var userId = principal.FindFirst("sub")?.Value;
-                    if (string.IsNullOrWhiteSpace(userId)) return null;
-
-                    return new FacebookProfile(
-                        Id: userId,
-                        FirstName: principal.FindFirst("given_name")?.Value,
-                        LastName: principal.FindFirst("family_name")?.Value,
-                        Name: principal.FindFirst("name")?.Value,
-                        Email: principal.FindFirst("email")?.Value,
-                        Picture: null,
-                        LimitedPictureUrl: principal.FindFirst("picture")?.Value);
-                }
-                catch (SecurityTokenSignatureKeyNotFoundException) when (attempt == 0)
-                {
-                    signingKeys = await GetFacebookSigningKeysAsync(
-                        forceRefresh: true,
-                        cancellationToken);
-                    if (signingKeys is null) return null;
-                }
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private async Task<IReadOnlyCollection<SecurityKey>?> GetFacebookSigningKeysAsync(
-        bool forceRefresh,
-        CancellationToken cancellationToken)
-    {
-        var now = DateTimeOffset.UtcNow;
-        if (!forceRefresh &&
-            _facebookSigningKeys is not null &&
-            _facebookSigningKeysExpireAt > now)
-        {
-            return _facebookSigningKeys;
-        }
-
-        await FacebookJwksLock.WaitAsync(cancellationToken);
-        try
-        {
-            now = DateTimeOffset.UtcNow;
-            if (!forceRefresh &&
-                _facebookSigningKeys is not null &&
-                _facebookSigningKeysExpireAt > now)
-            {
-                return _facebookSigningKeys;
-            }
-
-            var client = _httpClientFactory.CreateClient("facebook");
-            using var response = await client.GetAsync(
-                "https://www.facebook.com/.well-known/oauth/openid/jwks/",
-                cancellationToken);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            var signingKeys = new JsonWebKeySet(json)
-                .GetSigningKeys()
-                .ToArray();
-            if (signingKeys.Length == 0) return null;
-
-            _facebookSigningKeys = signingKeys;
-            _facebookSigningKeysExpireAt = now.AddHours(6);
-            return signingKeys;
-        }
-        finally
-        {
-            FacebookJwksLock.Release();
-        }
-    }
-
     private static string ComposeDisplayName(string? firstName, string? lastName)
     {
         return $"{firstName?.Trim()} {lastName?.Trim()}".Trim();
@@ -1724,30 +1502,5 @@ public class AuthController : ControllerBase
         return email.Trim().ToLowerInvariant();
     }
 
-    private sealed record FacebookTokenDebugEnvelope(
-        [property: JsonPropertyName("data")] FacebookTokenDebugData? Data);
 
-    private sealed record FacebookTokenDebugData(
-        [property: JsonPropertyName("app_id")] string AppId,
-        [property: JsonPropertyName("is_valid")] bool IsValid,
-        [property: JsonPropertyName("user_id")] string UserId,
-        [property: JsonPropertyName("expires_at")] long ExpiresAt);
-
-    private sealed record FacebookProfile(
-        [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("first_name")] string? FirstName,
-        [property: JsonPropertyName("last_name")] string? LastName,
-        [property: JsonPropertyName("name")] string? Name,
-        [property: JsonPropertyName("email")] string? Email,
-        [property: JsonPropertyName("picture")] FacebookPicture? Picture,
-        string? LimitedPictureUrl = null)
-    {
-        public string? PictureUrl => Picture?.Data?.Url ?? LimitedPictureUrl;
-    }
-
-    private sealed record FacebookPicture(
-        [property: JsonPropertyName("data")] FacebookPictureData? Data);
-
-    private sealed record FacebookPictureData(
-        [property: JsonPropertyName("url")] string? Url);
 }

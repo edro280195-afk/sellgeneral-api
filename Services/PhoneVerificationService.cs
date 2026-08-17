@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,12 +9,11 @@ namespace EntregasApi.Services;
 
 public class WhatsAppOptions
 {
-    public string Provider { get; init; } = "MetaWhatsApp";
+    public string Provider { get; init; } = "CustomWhatsApp";
     public string DefaultCountryCode { get; init; } = "52";
     public int NationalNumberLength { get; init; } = 10;
     public string Channel { get; init; } = "whatsapp";
 
-    public MetaWhatsAppOptions Meta { get; init; } = new();
     public CustomWhatsAppOptions Custom { get; init; } = new();
 
     // Compatibilidad previa con Twilio si existen referencias
@@ -23,14 +21,6 @@ public class WhatsAppOptions
 }
 
 public sealed class SmsOptions : WhatsAppOptions { }
-
-public sealed class MetaWhatsAppOptions
-{
-    public string PhoneNumberId { get; init; } = string.Empty;
-    public string AccessToken { get; init; } = string.Empty;
-    public string TemplateName { get; init; } = "auth_otp";
-    public string GraphApiVersion { get; init; } = "v20.0";
-}
 
 public sealed class CustomWhatsAppOptions
 {
@@ -67,7 +57,7 @@ public interface IPhoneVerificationService
 }
 
 /// <summary>
-/// Servicio de verificación de teléfono directo por WhatsApp (Meta Cloud API o Custom WhatsApp Gateway).
+/// Servicio de verificación de teléfono directo por WhatsApp mediante un gateway configurable.
 /// Almacena y valida el código OTP localmente sin depender de Twilio Verify.
 /// </summary>
 public sealed class DirectWhatsAppVerificationService(
@@ -78,9 +68,7 @@ public sealed class DirectWhatsAppVerificationService(
     private readonly WhatsAppOptions _options = options.Value;
     private static readonly ConcurrentDictionary<string, (string Code, DateTime ExpiryUtc)> _otpCache = new();
 
-    public bool IsConfigured =>
-        (!string.IsNullOrWhiteSpace(_options.Meta.PhoneNumberId) && !string.IsNullOrWhiteSpace(_options.Meta.AccessToken)) ||
-        !string.IsNullOrWhiteSpace(_options.Custom.ApiUrl);
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(_options.Custom.ApiUrl);
 
     public string? NormalizePhone(string? input)
     {
@@ -121,11 +109,6 @@ public sealed class DirectWhatsAppVerificationService(
             return PhoneVerificationOutcome.Sent;
         }
 
-        if (!string.IsNullOrWhiteSpace(_options.Meta.PhoneNumberId) && !string.IsNullOrWhiteSpace(_options.Meta.AccessToken))
-        {
-            return await SendMetaWhatsAppAsync(normalizedPhone, code, cancellationToken);
-        }
-
         if (!string.IsNullOrWhiteSpace(_options.Custom.ApiUrl))
         {
             return await SendCustomWhatsAppAsync(normalizedPhone, code, cancellationToken);
@@ -154,67 +137,6 @@ public sealed class DirectWhatsAppVerificationService(
         }
 
         return Task.FromResult(PhoneVerificationOutcome.Invalid);
-    }
-
-    private async Task<PhoneVerificationOutcome> SendMetaWhatsAppAsync(
-        string normalizedPhone,
-        string code,
-        CancellationToken cancellationToken)
-    {
-        var url = $"https://graph.facebook.com/{_options.Meta.GraphApiVersion}/{_options.Meta.PhoneNumberId}/messages";
-        var payload = new
-        {
-            messaging_product = "whatsapp",
-            to = ToE164(normalizedPhone),
-            type = "template",
-            template = new
-            {
-                name = _options.Meta.TemplateName,
-                language = new { code = "es" },
-                components = new object[]
-                {
-                    new
-                    {
-                        type = "body",
-                        parameters = new[]
-                        {
-                            new { type = "text", text = code }
-                        }
-                    },
-                    new
-                    {
-                        type = "button",
-                        sub_type = "url",
-                        index = "0",
-                        parameters = new[]
-                        {
-                            new { type = "text", text = code }
-                        }
-                    }
-                }
-            }
-        };
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.Meta.AccessToken);
-        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                return PhoneVerificationOutcome.Sent;
-            }
-
-            logger.LogWarning("Meta WhatsApp Cloud API respondió con HTTP {StatusCode}", (int)response.StatusCode);
-            return PhoneVerificationOutcome.ProviderUnavailable;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Error al enviar mensaje por Meta WhatsApp Cloud API.");
-            return PhoneVerificationOutcome.ProviderUnavailable;
-        }
     }
 
     private async Task<PhoneVerificationOutcome> SendCustomWhatsAppAsync(

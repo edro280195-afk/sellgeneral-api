@@ -10,7 +10,7 @@ namespace EntregasApi.Migrator.Migration;
 ///   Id, Name, Email, PasswordHash, CreatedAt, Rol  (text: "Admin" | "Driver" | "Scaner")
 ///
 /// Destino (Accounts):
-///   Id, DisplayName, ProfilePhotoUrl, Phone, FacebookUserId, Email, PasswordHash, CreatedAt
+///   Id, DisplayName, ProfilePhotoUrl, Phone, FirebaseUid, Email, PasswordHash, CreatedAt
 ///
 /// Destino (Memberships):
 ///   Id, AccountId, BusinessId, Role, CreatedAt
@@ -76,7 +76,7 @@ public sealed class UsersToAccountsMapper
         // 2) Insertar Accounts con PK explicito (mismo Id) y luego Memberships.
         const string insertAccountSql = """
             INSERT INTO "Accounts"
-                ("Id", "DisplayName", "ProfilePhotoUrl", "Phone", "FacebookUserId", "Email", "PasswordHash", "CreatedAt")
+                ("Id", "DisplayName", "ProfilePhotoUrl", "Phone", "FirebaseUid", "Email", "PasswordHash", "CreatedAt")
             VALUES
                 (@Id, @DisplayName, NULL, NULL, NULL, @Email, @PasswordHash, @CreatedAt)
             """;

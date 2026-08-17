@@ -25,9 +25,6 @@ public class Client : ITenantOwned
     public string? Phone { get; set; }
 
     [MaxLength(500)]
-    public string? FacebookProfileUrl { get; set; }
-
-    [MaxLength(500)]
     public string? Address { get; set; }
 
     public double? Latitude { get; set; }

@@ -29,7 +29,6 @@ public class CreateTandaParticipantDto
 {
     public int CustomerId { get; set; }
     public string? CustomerName { get; set; }
-    public string? FacebookProfileUrl { get; set; }
 
     [Required]
     public int AssignedTurn { get; set; }
@@ -46,7 +45,6 @@ public class AddParticipantDto
 
     public int CustomerId { get; set; }
     public string? CustomerName { get; set; }
-    public string? FacebookProfileUrl { get; set; }
 
     [Required]
     public int AssignedTurn { get; set; }

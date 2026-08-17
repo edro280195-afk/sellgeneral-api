@@ -108,14 +108,12 @@ public class ShareLandingController : ControllerBase
 
         var biz = await _db.Businesses.AsNoTracking()
             .Where(b => b.Id == order.BusinessId)
-            .Select(b => new { b.Name, b.LogoUrl, b.MessengerUrl, b.FacebookUrl })
+            .Select(b => new { b.Name, b.LogoUrl })
             .FirstOrDefaultAsync();
 
         return Ok(new OrderTeaserDto(
             BusinessName: biz?.Name ?? "Tu tienda",
             BusinessLogoUrl: biz?.LogoUrl,
-            BusinessMessengerUrl: biz?.MessengerUrl,
-            BusinessFacebookUrl: biz?.FacebookUrl,
             ClientName: order.Client?.Name ?? "Cliente",
             Total: order.Total,
             ItemsCount: order.Items.Count,
@@ -436,8 +434,6 @@ public class ShareLandingController : ControllerBase
 public record OrderTeaserDto(
     string BusinessName,
     string? BusinessLogoUrl,
-    string? BusinessMessengerUrl,
-    string? BusinessFacebookUrl,
     string ClientName,
     decimal Total,
     int ItemsCount,

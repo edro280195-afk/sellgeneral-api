@@ -29,6 +29,23 @@ public record RegisterRequest(
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
 
+/// <summary>
+/// Canjea un Firebase ID token ya validado en el dispositivo por la sesión
+/// propia de Nenis. Los demás campos son datos de onboarding, nunca prueba de
+/// identidad.
+/// </summary>
+public record FirebaseLoginRequest(
+    string IdToken,
+    string AccountType = "client",
+    string? FirstName = null,
+    string? LastName = null,
+    string? Email = null,
+    string? Password = null,
+    string? BusinessName = null,
+    string? City = null,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null);
+
 /// <summary>Canje de un refresh token por una sesión nueva (o logout).</summary>
 public record RefreshRequest(string RefreshToken);
 
@@ -73,50 +90,6 @@ public record ConfirmPasswordResetRequest(
     string Phone,
     string Code,
     string NewPassword);
-
-/// <summary>
-/// Inicia Facebook Login. Si el Facebook ya está vinculado a una cuenta
-/// verificada devuelve sesión; de lo contrario responde con los datos que
-/// todavía deben completarse.
-/// </summary>
-public record FacebookLoginRequest(
-    string AccessToken,
-    string AccountType = "client",
-    string TokenType = "classic");
-
-/// <summary>
-/// Completa un alta o enlace iniciado con Facebook. Una cuenta existente exige
-/// su contraseña actual antes de permitir que se agregue Facebook como método
-/// de acceso.
-/// </summary>
-public record FacebookCompleteProfileRequest(
-    string AccessToken,
-    string AccountType,
-    string FirstName,
-    string LastName,
-    string Email,
-    string Phone,
-    string TokenType = "classic",
-    string? BusinessName = null,
-    string? City = null,
-    string? ExistingPassword = null,
-    bool AcceptedLegal = false,
-    string? LegalVersion = null);
-
-public record FacebookContinuationResponse(
-    string Error,
-    string Message,
-    string AccountType,
-    bool NeedsProfile,
-    bool NeedsPhoneVerification,
-    bool RequiresExistingPassword,
-    string? FirstName,
-    string? LastName,
-    string? Email,
-    string? Phone,
-    List<string> MissingFields,
-    bool ProviderConfigured = false,
-    bool DevMode = false);
 
 // Suscripcion / onboarding de negocio
 public record CreateBusinessRequest(
@@ -205,7 +178,6 @@ public record OrderSummaryDto(
     string? AlternativeAddress = null,
     int? DeliveryRouteId = null,
     DateTime? ScheduledDeliveryDate = null,
-    string? ClientFacebookProfileUrl = null,
     DateTime? NotifiedAt = null,
     double? ClientLatitude = null,
     double? ClientLongitude = null,
@@ -236,8 +208,7 @@ public record ClientDto(
     string? DeliveryInstructions = null,
     double? Latitude = null,
     double? Longitude = null,
-    List<string>? Aliases = null,
-    string? FacebookProfileUrl = null
+    List<string>? Aliases = null
 );
 
 public record OrderTrackingDto(
@@ -543,10 +514,6 @@ public record ClientOrderView(
     string? BusinessName = null,
     /// <summary>URL del logo del negocio (Cloudinary). Null si la tienda no lo ha subido.</summary>
     string? BusinessLogoUrl = null,
-    /// <summary>URL de Messenger del negocio para contacto de la clienta.</summary>
-    string? BusinessMessengerUrl = null,
-    /// <summary>URL de Facebook del negocio.</summary>
-    string? BusinessFacebookUrl = null,
     /// <summary>Nombre del repartidor asignado a la ruta. Null si aún no hay ruta activa.</summary>
     string? CourierName = null,
     /// <summary>Teléfono del repartidor (para el botón de llamar). Null si no hay ruta/chofer.</summary>
@@ -774,39 +741,7 @@ public record SupplierDto(
     DateTime CreatedAt,
     decimal TotalInvested = 0m
 );
-public record UpdateClientRequest(string Name, string? Phone, string? Address, ClientTag Tag, string Type, string? DeliveryInstructions, string? FacebookProfileUrl = null);
-
-// ── Importación masiva de Facebook de clientas ──
-
-/// <summary>Una fila cruda del archivo/pegado: nombre tal como viene + enlace de FB.</summary>
-public record FacebookImportRow(string Name, string FacebookUrl);
-
-public record FacebookImportPreviewRequest(List<FacebookImportRow> Rows);
-
-/// <summary>
-/// Resultado del matching difuso de una fila contra las clientas existentes.
-/// Status: "matched" (match claro, premarcado) | "review" (ambiguo, revisar) | "notfound" (sin match confiable).
-/// </summary>
-public record FacebookImportPreviewItem(
-    int RowIndex,
-    string InputName,
-    string InputUrl,
-    bool UrlValid,
-    string Status,
-    int? SuggestedClientId,
-    double TopScore,
-    bool TopAlreadyHasFacebook,
-    bool DuplicateUrlInBatch,
-    List<ResolveCandidateDto> Candidates);
-
-public record FacebookImportPreviewResponse(List<FacebookImportPreviewItem> Items);
-
-/// <summary>Una asignación confirmada por el usuario: a esta clienta, este enlace.</summary>
-public record FacebookImportApplyRow(int ClientId, string FacebookUrl);
-
-public record FacebookImportApplyRequest(List<FacebookImportApplyRow> Rows);
-
-public record FacebookImportApplyResponse(int Applied, int Skipped, List<string> Errors);
+public record UpdateClientRequest(string Name, string? Phone, string? Address, ClientTag Tag, string Type, string? DeliveryInstructions);
 
 public record CreateSupplierRequest
 {
@@ -966,8 +901,7 @@ public record UpdateOrderDetailsRequest(
     int? SalesPeriodId = null,
     string? DeliveryInstructions = null,
     string? AlternativeAddress = null,
-    DateTime? ScheduledDeliveryDate = null,
-    string? ClientFacebookProfileUrl = null
+    DateTime? ScheduledDeliveryDate = null
 );
 
 // DTO para actualizar un producto individual
@@ -1457,8 +1391,6 @@ public record BuyerStoreDetailDto(
     string? LiveCurrentProductName,
     decimal? LiveCurrentProductPrice,
     DateTime? LiveCurrentAnnouncedAt,
-    string? FacebookUrl,
-    string? MessengerUrl,
     double? AverageRating,
     int RatingsCount);
 
@@ -1665,16 +1597,12 @@ public record BrandDto(
     string? LogoUrl,
     string? BannerUrl,
     string BrandPrimaryColor,
-    string? BrandAccentColor,
-    string? MessengerUrl = null,
-    string? FacebookUrl = null);
+    string? BrandAccentColor);
 
 public record UpdateBrandRequest(
     string? Name = null,
     string? BrandPrimaryColor = null,
-    string? BrandAccentColor = null,
-    string? MessengerUrl = null,
-    string? FacebookUrl = null);
+    string? BrandAccentColor = null);
 
 public record BrandAssetDto(string Kind, string Url);
 

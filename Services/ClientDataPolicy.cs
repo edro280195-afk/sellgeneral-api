@@ -56,12 +56,6 @@ public static class ClientDataPolicy
             preserved.Add("instrucciones");
         }
 
-        if (string.IsNullOrWhiteSpace(target.FacebookProfileUrl)
-            && !string.IsNullOrWhiteSpace(source.FacebookProfileUrl))
-        {
-            target.FacebookProfileUrl = source.FacebookProfileUrl.Trim();
-            preserved.Add("Facebook");
-        }
 
         return preserved;
     }
