@@ -5,7 +5,7 @@ namespace EntregasApi.Models;
 /// <summary>
 /// Aviso en tiempo real de "estoy en vivo ahora" — la vendedora lo crea al
 /// tocar un botón justo cuando empieza a transmitir (normalmente en
-/// Facebook). También carga qué producto está anunciando en este momento
+/// una plataforma externa). También carga qué producto está anunciando en este momento
 /// (<see cref="LiveHub.AnnounceProduct"/> actualiza los campos Current*),
 /// para que una compradora que abre la app a mitad del vivo vea de inmediato
 /// lo último anunciado en vez de esperar al siguiente evento de SignalR.

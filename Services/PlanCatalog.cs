@@ -87,7 +87,6 @@ public static class PlanCatalog
         Feature.Financials,
         Feature.TandasRaffles,
         Feature.Pos,
-        Feature.FacebookImport,
         Feature.VipDrops,
         Feature.LabelPrinting
     ];
@@ -258,7 +257,6 @@ public static class PlanCatalog
             Feature.Financials or
             Feature.TandasRaffles or
             Feature.Pos or
-            Feature.FacebookImport or
             Feature.VipDrops or
             Feature.LabelPrinting => PlanTiers.Pro,
 

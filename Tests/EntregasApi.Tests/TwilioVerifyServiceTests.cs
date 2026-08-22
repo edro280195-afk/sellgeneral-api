@@ -24,7 +24,7 @@ public class DirectWhatsAppVerificationServiceTests
     }
 
     [Fact]
-    public async Task SendCodeAsync_GeneratesLocalCodeAndPostsMetaWhatsApp()
+    public async Task SendCodeAsync_GeneratesLocalCodeAndPostsCustomWhatsApp()
     {
         var handler = new StubHandler(HttpStatusCode.OK, """{"messaging_product":"whatsapp"}""");
         var service = BuildService(handler);
@@ -33,10 +33,9 @@ public class DirectWhatsAppVerificationServiceTests
 
         Assert.Equal(PhoneVerificationOutcome.Sent, outcome);
         Assert.NotNull(handler.LastRequest);
-        Assert.EndsWith("/12345/messages", handler.LastRequest.RequestUri?.AbsolutePath);
-        Assert.Equal("Bearer", handler.LastRequest.Headers.Authorization?.Scheme);
+        Assert.Equal("/otp", handler.LastRequest.RequestUri?.AbsolutePath);
+        Assert.Equal("test-key", handler.LastRequest.Headers.GetValues("X-Api-Key").Single());
         Assert.Contains("528681452290", handler.LastBody);
-        Assert.Contains("auth_otp", handler.LastBody);
     }
 
     [Fact]
@@ -60,19 +59,18 @@ public class DirectWhatsAppVerificationServiceTests
     {
         var options = Options.Create(new WhatsAppOptions
         {
-            Provider = "MetaWhatsApp",
+            Provider = "CustomWhatsApp",
             DefaultCountryCode = "52",
             NationalNumberLength = 10,
-            Meta = new MetaWhatsAppOptions
+            Custom = new CustomWhatsAppOptions
             {
-                PhoneNumberId = "12345",
-                AccessToken = "test-token",
-                TemplateName = "auth_otp"
+                ApiUrl = "https://gateway.example/otp",
+                ApiKey = "test-key"
             }
         });
         var client = new HttpClient(handler)
         {
-            BaseAddress = new Uri("https://graph.facebook.com/")
+            BaseAddress = new Uri("https://gateway.example/")
         };
 
         return new DirectWhatsAppVerificationService(

@@ -47,9 +47,9 @@ namespace EntregasApi.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
-                    b.Property<string>("FacebookUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                    b.Property<string>("FirebaseUid")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("FirstName")
                         .HasMaxLength(100)
@@ -103,9 +103,9 @@ namespace EntregasApi.Migrations
                         .IsUnique()
                         .HasFilter("\"Email\" IS NOT NULL");
 
-                    b.HasIndex("FacebookUserId")
+                    b.HasIndex("FirebaseUid")
                         .IsUnique()
-                        .HasFilter("\"FacebookUserId\" IS NOT NULL");
+                        .HasFilter("\"FirebaseUid\" IS NOT NULL");
 
                     b.HasIndex("Phone")
                         .IsUnique()
@@ -117,7 +117,7 @@ namespace EntregasApi.Migrations
 
                     b.ToTable("Accounts", t =>
                         {
-                            t.HasCheckConstraint("CK_Accounts_IdentityMethod", "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL");
+                            t.HasCheckConstraint("CK_Accounts_IdentityMethod", "\"Phone\" IS NOT NULL OR \"FirebaseUid\" IS NOT NULL OR \"Email\" IS NOT NULL");
                         });
                 });
 
@@ -192,10 +192,6 @@ namespace EntregasApi.Migrations
                     b.Property<double>("DepotLng")
                         .HasColumnType("double precision");
 
-                    b.Property<string>("FacebookUrl")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
                     b.Property<string>("FrontendUrl")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -226,10 +222,6 @@ namespace EntregasApi.Migrations
                     b.Property<string>("MercadoPagoPublicKey")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
-
-                    b.Property<string>("MessengerUrl")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -432,10 +424,6 @@ namespace EntregasApi.Migrations
 
                     b.Property<string>("DeliveryInstructions")
                         .HasColumnType("text");
-
-                    b.Property<string>("FacebookProfileUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
 
                     b.Property<double?>("Latitude")
                         .HasColumnType("double precision");

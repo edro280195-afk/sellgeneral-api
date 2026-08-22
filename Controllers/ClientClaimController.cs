@@ -31,7 +31,7 @@ public class ClientClaimController : ControllerBase
     /// <summary>
     /// POST /api/client-claims/by-order-token/{accessToken}
     /// Camino principal: la app se abrió desde el link de un pedido. La posesión
-    /// del AccessToken (que la vendedora mandó por Messenger/SMS al cliente)
+    /// del AccessToken que la vendedora compartió con la clienta.
     /// es la prueba. Enlaza Client.AccountId = AccountId del JWT.
     /// </summary>
     [HttpPost("by-order-token/{accessToken}")]

@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.regibazar.driver",
+            "sha256_cert_fingerprints": [
+                "59:57:3A:42:52:47:25:DC:B7:1D:00:71:49:73:2F:BC:7B:73:13:7D:BC:CA:DB:DF:5A:A1:2C:83:02:C6:33:E6"
+            ]
+        }
+    }
+]

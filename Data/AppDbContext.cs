@@ -110,9 +110,9 @@ public class AppDbContext : DbContext
                   .IsUnique()
                   .HasFilter("\"Phone\" IS NOT NULL");
 
-            entity.HasIndex(a => a.FacebookUserId)
+            entity.HasIndex(a => a.FirebaseUid)
                   .IsUnique()
-                  .HasFilter("\"FacebookUserId\" IS NOT NULL");
+                  .HasFilter("\"FirebaseUid\" IS NOT NULL");
 
             entity.HasIndex(a => a.Email)
                   .IsUnique()
@@ -136,7 +136,7 @@ public class AppDbContext : DbContext
 
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_Accounts_IdentityMethod",
-                "\"Phone\" IS NOT NULL OR \"FacebookUserId\" IS NOT NULL OR \"Email\" IS NOT NULL"));
+                "\"Phone\" IS NOT NULL OR \"FirebaseUid\" IS NOT NULL OR \"Email\" IS NOT NULL"));
         });
 
         modelBuilder.Entity<Business>(entity =>

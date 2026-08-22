@@ -5,7 +5,7 @@ namespace EntregasApi.Models;
 /// <summary>
 /// La PERSONA: identidad global única por humano, compartida entre todos los negocios.
 /// Una misma persona puede ser Owner de un negocio y clienta de otros (ver <see cref="Membership"/>).
-/// Debe tener al menos un método de identidad presente (Phone, FacebookUserId o Email) — se
+/// Debe tener al menos un método de identidad presente (Phone, FirebaseUid o Email) — se
 /// garantiza con un CHECK constraint en el DbContext.
 /// </summary>
 public class Account
@@ -27,19 +27,22 @@ public class Account
     [MaxLength(500)]
     public string? ProfilePhotoUrl { get; set; }
 
-    /// <summary>Teléfono normalizado (solo dígitos, ver TextNormalizer). Unique cuando no es null.</summary>
+    /// <summary>
+    /// Teléfono nuevo normalizado en E.164. Las cuentas legacy pueden conservar
+    /// temporalmente el formato nacional de diez dígitos hasta ser enlazadas.
+    /// </summary>
     [MaxLength(20)]
     public string? Phone { get; set; }
 
-    /// <summary>
-    /// Momento en que la compradora confirmó su teléfono por WhatsApp. Null = sin verificar.
-    /// El login por teléfono+contraseña exige que este campo no sea null.
-    /// </summary>
+    /// <summary>Momento en que la cuenta confirmó la posesión de su teléfono.</summary>
     public DateTime? PhoneVerifiedAt { get; set; }
 
-    /// <summary>Id app-scoped de Facebook Login (public_profile). Unique cuando no es null.</summary>
-    [MaxLength(100)]
-    public string? FacebookUserId { get; set; }
+    /// <summary>
+    /// UID estable de Firebase Authentication. Nullable para cuentas existentes
+    /// que todavía no han iniciado sesión con Firebase.
+    /// </summary>
+    [MaxLength(128)]
+    public string? FirebaseUid { get; set; }
 
     [MaxLength(150)]
     public string? Email { get; set; }

@@ -37,7 +37,7 @@ public class ClientClaimService : IClientClaimService
         }
 
         if (string.IsNullOrWhiteSpace(account.Phone) &&
-            string.IsNullOrWhiteSpace(account.FacebookUserId) &&
+            string.IsNullOrWhiteSpace(account.FirebaseUid) &&
             string.IsNullOrWhiteSpace(account.Email))
         {
             return new ClaimOutcome(
@@ -408,6 +408,8 @@ internal static class AccountClaimExtensions
     {
         var raw = account.Phone;
         if (string.IsNullOrWhiteSpace(raw)) return null;
+        var mexicanNational = PhoneNumberNormalizer.ToMexicanNational(raw);
+        if (mexicanNational is not null) return mexicanNational;
         return TextNormalizer.NormalizePhone(raw);
     }
 }

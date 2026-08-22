@@ -7,7 +7,7 @@ namespace EntregasApi.Services;
 /// Client que las vendedoras ya tienen. Tres caminos, todos con prueba:
 ///
 ///  1) <c>ClaimByOrderTokenAsync</c>: la app se abrió desde un link con
-///     Order.AccessToken. La posesión del token (recibido por Messenger/SMS al
+///     Order.AccessToken. La posesión del token compartido por la vendedora al
 ///     hacer el pedido) ES la prueba. Camino principal.
 ///
 ///  2) <c>FindClaimCandidatesByPhoneAsync</c>: tras registrarse, buscamos en

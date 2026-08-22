@@ -60,8 +60,6 @@ public class BuyerStoreService : IBuyerStoreService
                 b.LogoUrl,
                 b.BrandPrimaryColor,
                 b.BrandAccentColor,
-                b.FacebookUrl,
-                b.MessengerUrl,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -177,8 +175,6 @@ public class BuyerStoreService : IBuyerStoreService
             LiveCurrentProductName: liveAnnouncement?.CurrentProductName,
             LiveCurrentProductPrice: liveAnnouncement?.CurrentProductPrice,
             LiveCurrentAnnouncedAt: liveAnnouncement?.CurrentAnnouncedAt,
-            FacebookUrl: business.FacebookUrl,
-            MessengerUrl: business.MessengerUrl,
             AverageRating: ratingStats?.Average,
             RatingsCount: ratingStats?.Count ?? 0);
     }

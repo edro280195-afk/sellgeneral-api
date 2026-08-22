@@ -4,6 +4,8 @@ public static class SecurityRateLimitPolicies
 {
     public const string AuthPassword = "auth-password";
     public const string AuthSession = "auth-session";
+    public const string AccountDeletion = "account-deletion";
+    public const string FirebaseAuth = "firebase-auth";
     public const string PublicTokenRead = "public-token-read";
     public const string PublicTokenWrite = "public-token-write";
     public const string DriverTokenRead = "driver-token-read";
@@ -12,5 +14,4 @@ public static class SecurityRateLimitPolicies
     public const string PushSubscribe = "push-subscribe";
     public const string LinkEvents = "link-events";
     public const string Webhook = "webhook";
-    public const string MetaLiveProbe = "meta-live-probe";
 }
