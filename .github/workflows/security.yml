@@ -32,5 +32,7 @@ jobs:
       - name: Check vulnerable packages
         run: dotnet list EntregasApi.csproj package --vulnerable --include-transitive
 
+      # El proyecto de pruebas no se restaura arriba (solo EntregasApi.csproj), así que aquí sí
+      # se restaura: con --no-restore fallaba con "Assets file ... project.assets.json not found".
       - name: Test
-        run: dotnet test Tests/EntregasApi.Tests/EntregasApi.Tests.csproj --no-restore --verbosity minimal
+        run: dotnet test Tests/EntregasApi.Tests/EntregasApi.Tests.csproj --verbosity minimal
