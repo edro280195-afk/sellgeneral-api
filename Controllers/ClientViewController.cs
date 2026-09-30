@@ -344,7 +344,9 @@ public class ClientViewController : ControllerBase
     [EnableRateLimiting(SecurityRateLimitPolicies.PublicTokenWrite)]
     public async Task<IActionResult> ConfirmOrder(string accessToken)
     {
-        var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
+        var order = await _db.Orders
+            .Include(o => o.Client)
+            .FirstOrDefaultAsync(o => o.AccessToken == accessToken);
 
         if (order == null) return NotFound(new { message = "Pedido no encontrado." });
         if (await IsLinkExpiredAsync(order)) return StatusCode(410, new { message = "Este enlace ha expirado." });
@@ -362,12 +364,21 @@ public class ClientViewController : ControllerBase
                 NewStatus = "Confirmed"
             });
 
-            // 🔔 Notificación Push a los Admins!
-            await _push.SendNotificationToAdminsAsync(
-                "💖 ¡Pedido Confirmado!",
-                $"{order.Client?.Name} ha confirmado su pedido #{order.Id}. ¡A darle!",
-                tag: "order-confirmed"
-            );
+            // 🔔 Aviso a la vendedora: dueña y administradoras de ESTE negocio.
+            // Nunca a la clienta ni a otro negocio; un fallo del push no revierte la confirmación.
+            try
+            {
+                await _push.SendNotificationToBusinessOwnersAsync(
+                    order.BusinessId,
+                    "💖 ¡Pedido Confirmado!",
+                    $"{order.Client?.Name ?? "Una clienta"} ha confirmado su pedido #{DisplayNumber(order)}. ¡A darle!",
+                    url: $"/orders/detail/{order.Id}",
+                    tag: "order-confirmed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No pude avisar a la vendedora de la confirmación del pedido {OrderId}.", order.Id);
+            }
 
             return Ok(new { message = "¡Pedido confirmado exitosamente! 💖" });
         }
@@ -628,10 +639,19 @@ public class ClientViewController : ControllerBase
             });
 
             var clientName = order.Client?.Name ?? "Clienta";
-            await _push.SendNotificationToAdminsAsync(
-                $"Pago con tarjeta: {clientName}",
-                $"Pedido #{order.Id} liquidado por ${balanceDue:F2}.",
-                tag: "card-payment");
+            try
+            {
+                await _push.SendNotificationToBusinessOwnersAsync(
+                    order.BusinessId,
+                    $"Pago con tarjeta: {clientName}",
+                    $"Pedido #{DisplayNumber(order)} liquidado por ${balanceDue:F2}.",
+                    url: $"/orders/detail/{order.Id}",
+                    tag: "card-payment");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No pude avisar a la vendedora del pago con tarjeta del pedido {OrderId}.", order.Id);
+            }
         }
 
         var message = mpResult.Status switch
@@ -645,6 +665,12 @@ public class ClientViewController : ControllerBase
 
         return Ok(new CardPaymentResultDto(mpResult.Status, mpResult.StatusDetail, balanceDue, message, mpResult.Id));
     }
+
+    /// <summary>
+    /// Número que la vendedora ve en su lista ("Pedido #851"): el consecutivo del
+    /// negocio, o el id interno si el pedido es anterior a la numeración por negocio.
+    /// </summary>
+    private static int DisplayNumber(Order order) => order.OrderNumber > 0 ? order.OrderNumber : order.Id;
 
     private string BuildTenantPaymentWebhookUrl(int businessId)
     {

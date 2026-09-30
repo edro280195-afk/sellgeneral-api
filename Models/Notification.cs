@@ -4,10 +4,29 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace EntregasApi.Models;
 
 /// <summary>
-/// Notificación persistida para la app de la compradora. Se crea cada
-/// vez que <see cref="EntregasApi.Services.IPushNotificationService.SendNotificationToClientAsync"/>
-/// emite un push a una clienta. La app consume el historial vía
-/// <c>GET /api/me/notifications</c> (cross-tenant por AccountId).
+/// A quién va dirigida una notificación. Una misma cuenta puede ser dueña de un
+/// negocio y clienta de otros (ver <see cref="Account"/>), así que el
+/// destinatario se guarda de forma explícita: el historial, el contador de no
+/// leídas y el "marcar todas" se filtran por este valor y nunca mezclan los
+/// avisos de la tienda con los de las compras.
+/// </summary>
+public static class NotificationAudience
+{
+    /// <summary>La persona en su papel de clienta/seguidora: pedidos, en vivo, novedades.</summary>
+    public const string Buyer = "buyer";
+
+    /// <summary>La persona en su papel de dueña/administradora de un negocio.</summary>
+    public const string Seller = "seller";
+
+    public static bool IsValid(string? value) => value is Buyer or Seller;
+}
+
+/// <summary>
+/// Notificación persistida para la app. Se crea cada vez que el backend emite un
+/// push a una clienta (<see cref="EntregasApi.Services.IPushNotificationService.SendNotificationToClientAsync"/>),
+/// a las seguidoras de una tienda o a las dueñas/administradoras de un negocio.
+/// La app consume el historial vía <c>GET /api/me/notifications</c>
+/// (cross-tenant por AccountId, filtrado por <see cref="Audience"/>).
 /// </summary>
 public class Notification : ITenantOwned
 {
@@ -31,6 +50,15 @@ public class Notification : ITenantOwned
     /// siguen resolviéndose vía ClientId -&gt; Client.AccountId.
     /// </summary>
     public int? AccountId { get; set; }
+
+    /// <summary>
+    /// Destinatario: <see cref="NotificationAudience.Buyer"/> (clienta/seguidora) o
+    /// <see cref="NotificationAudience.Seller"/> (dueña/administradora). Las filas
+    /// anteriores a esta columna quedaron como "buyer", salvo los avisos
+    /// periódicos de la dueña (ver la migración AddNotificationAudience).
+    /// </summary>
+    [Required, MaxLength(10)]
+    public string Audience { get; set; } = NotificationAudience.Buyer;
 
     [Required, MaxLength(200)]
     public string Title { get; set; } = string.Empty;

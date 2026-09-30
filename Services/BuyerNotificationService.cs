@@ -8,18 +8,22 @@ namespace EntregasApi.Services;
 public interface IBuyerNotificationService
 {
     /// <summary>
-    /// Lista las notificaciones de la compradora, cross-tenant por
-    /// AccountId, ordenadas por fecha descendente. Solo trae las
-    /// notificaciones de los Client de la Account.
+    /// Lista las notificaciones de la cuenta, cross-tenant por AccountId,
+    /// ordenadas por fecha descendente. <paramref name="audience"/> separa los
+    /// avisos de clienta (<see cref="NotificationAudience.Buyer"/>) de los de
+    /// dueña/administradora (<see cref="NotificationAudience.Seller"/>); sin
+    /// valor devuelve ambos (compatibilidad con versiones anteriores de la app).
+    /// Lanza <see cref="InvalidNotificationAudienceException"/> si el valor no existe.
     /// </summary>
     Task<List<BuyerNotificationDto>> GetMyNotificationsAsync(
         int accountId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? audience = null);
 
     /// <summary>
     /// Marca una notificación como leída. Lanza
-    /// <see cref="NotificationNotFoundException"/> si no pertenece a la
-    /// Account.
+    /// <see cref="NotificationNotFoundException"/> si no existe o no es visible
+    /// para la Account (no se distingue para no revelar ids ajenos).
     /// </summary>
     Task MarkAsReadAsync(
         int accountId,
@@ -27,20 +31,22 @@ public interface IBuyerNotificationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Marca todas las notificaciones de la compradora como leídas.
-    /// Devuelve la cantidad que se actualizó.
+    /// Marca como leídas las notificaciones de la cuenta del destinatario
+    /// indicado (o todas si no se indica). Devuelve la cantidad actualizada.
     /// </summary>
     Task<int> MarkAllAsReadAsync(
         int accountId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? audience = null);
 
     /// <summary>
-    /// Cuenta las notificaciones no leídas. Se usa para el badge en el
-    /// Home (icono 🔔 con punto rojo).
+    /// Cuenta las notificaciones no leídas del destinatario indicado. Se usa
+    /// para el badge en el Home (icono 🔔 con punto rojo).
     /// </summary>
     Task<int> CountUnreadAsync(
         int accountId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? audience = null);
 }
 
 public class NotificationNotFoundException : Exception
@@ -48,11 +54,26 @@ public class NotificationNotFoundException : Exception
     public NotificationNotFoundException(string message) : base(message) { }
 }
 
+/// <summary>El destinatario pedido no es "buyer" ni "seller". Se traduce a 400.</summary>
+public class InvalidNotificationAudienceException : Exception
+{
+    public InvalidNotificationAudienceException(string? audience)
+        : base($"El destinatario '{audience}' no es válido. Usa 'buyer' o 'seller'.") { }
+}
+
 /// <summary>
-/// Notificaciones vistas por la compradora en la app. Persistidas cada
-/// vez que <see cref="IPushNotificationService.SendNotificationToClientAsync"/>
-/// emite un push. La pantalla Home las consulta para el badge de no
-/// leídas y la pantalla de Notificaciones las lista.
+/// Notificaciones vistas por la persona en la app. Persistidas cada vez que el
+/// backend emite un push (clienta, seguidoras o dueñas). La pantalla Home las
+/// consulta para el badge de no leídas y la pantalla de Notificaciones las lista.
+///
+/// Reglas de visibilidad (todas pasan por <see cref="VisibleTo"/>):
+///   • Solo las de la propia cuenta: directas por AccountId o vía un Client
+///     enlazado a la cuenta.
+///   • Los avisos de dueña/administradora (<see cref="NotificationAudience.Seller"/>)
+///     solo se ven mientras la cuenta siga siendo Owner/Admin de ese negocio: si la
+///     sacan del equipo, deja de ver los avisos de la tienda (nombres, saldos).
+///   • Con <c>audience</c> se separa el historial de clienta del de dueña, para que
+///     una cuenta con ambos papeles nunca los mezcle.
 /// </summary>
 public class BuyerNotificationService : IBuyerNotificationService
 {
@@ -67,18 +88,18 @@ public class BuyerNotificationService : IBuyerNotificationService
 
     public async Task<List<BuyerNotificationDto>> GetMyNotificationsAsync(
         int accountId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? audience = null)
     {
-        var rows = await _db.Notifications.AsNoTracking().IgnoreQueryFilters()
-            .Where(n => n.AccountId == accountId
-                        || _db.Clients.IgnoreQueryFilters()
-                            .Any(c => c.AccountId == accountId && c.Id == n.ClientId))
+        var rows = await VisibleTo(accountId, NormalizeAudience(audience))
+            .AsNoTracking()
             .OrderByDescending(n => n.CreatedAt)
             .Select(n => new
             {
                 n.Id,
                 n.BusinessId,
                 n.ClientId,
+                n.Audience,
                 n.Title,
                 n.Message,
                 n.Tag,
@@ -118,7 +139,8 @@ public class BuyerNotificationService : IBuyerNotificationService
                 Url: n.Url,
                 OrderId: n.OrderId,
                 CreatedAt: n.CreatedAt,
-                ReadAt: n.ReadAt);
+                ReadAt: n.ReadAt,
+                Audience: n.Audience);
         }).ToList();
     }
 
@@ -127,24 +149,13 @@ public class BuyerNotificationService : IBuyerNotificationService
         Guid notificationId,
         CancellationToken cancellationToken = default)
     {
-        var notification = await _db.Notifications.IgnoreQueryFilters()
+        // La misma regla de visibilidad que el listado: si no la ves, no existe.
+        var notification = await VisibleTo(accountId, audience: null)
             .FirstOrDefaultAsync(n => n.Id == notificationId, cancellationToken);
 
         if (notification is null)
         {
             throw new NotificationNotFoundException("Esta notificación no existe.");
-        }
-
-        // Validar que pertenece a la Account (directo, o vía Client.AccountId).
-        var belongs = notification.AccountId == accountId
-            || (notification.ClientId is not null
-                && await _db.Clients.AsNoTracking().IgnoreQueryFilters()
-                    .AnyAsync(c => c.Id == notification.ClientId && c.AccountId == accountId,
-                        cancellationToken));
-
-        if (!belongs)
-        {
-            throw new NotificationNotFoundException("Esta notificación no está en tu cuenta.");
         }
 
         if (notification.ReadAt is null)
@@ -156,16 +167,11 @@ public class BuyerNotificationService : IBuyerNotificationService
 
     public async Task<int> MarkAllAsReadAsync(
         int accountId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? audience = null)
     {
-        // Subquery: IDs de Client de la Account.
-        var myClientIds = _db.Clients.IgnoreQueryFilters()
-            .Where(c => c.AccountId == accountId)
-            .Select(c => (int?)c.Id);
-
-        var unread = await _db.Notifications.IgnoreQueryFilters()
-            .Where(n => n.ReadAt == null
-                        && (n.AccountId == accountId || myClientIds.Contains(n.ClientId)))
+        var unread = await VisibleTo(accountId, NormalizeAudience(audience))
+            .Where(n => n.ReadAt == null)
             .ToListAsync(cancellationToken);
 
         var now = DateTime.UtcNow;
@@ -182,16 +188,50 @@ public class BuyerNotificationService : IBuyerNotificationService
 
     public async Task<int> CountUnreadAsync(
         int accountId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? audience = null)
     {
+        return await VisibleTo(accountId, NormalizeAudience(audience))
+            .CountAsync(n => n.ReadAt == null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Notificaciones que esta cuenta puede ver. Única fuente de la regla de
+    /// visibilidad: listado, contador, "marcar todas" y "marcar una" la usan.
+    /// </summary>
+    private IQueryable<Notification> VisibleTo(int accountId, string? audience)
+    {
+        // IDs de Client enlazados a la cuenta (las notificaciones por pedido
+        // solo guardan ClientId).
         var myClientIds = _db.Clients.IgnoreQueryFilters()
             .Where(c => c.AccountId == accountId)
             .Select(c => (int?)c.Id);
 
-        return await _db.Notifications.IgnoreQueryFilters()
-            .CountAsync(n => n.ReadAt == null
-                              && (n.AccountId == accountId || myClientIds.Contains(n.ClientId)),
-                cancellationToken);
+        var query = _db.Notifications.IgnoreQueryFilters()
+            .Where(n => n.AccountId == accountId || myClientIds.Contains(n.ClientId))
+            // Avisos de la tienda: solo mientras siga siendo dueña/administradora.
+            .Where(n => n.Audience != NotificationAudience.Seller
+                        || _db.Memberships.Any(m => m.AccountId == accountId
+                                                    && m.BusinessId == n.BusinessId
+                                                    && (m.Role == MembershipRole.Owner
+                                                        || m.Role == MembershipRole.Admin)));
+
+        return audience is null
+            ? query
+            : query.Where(n => n.Audience == audience);
+    }
+
+    /// <summary>null/vacío = sin filtro; "buyer"/"seller" = filtro; otro valor = error.</summary>
+    private static string? NormalizeAudience(string? audience)
+    {
+        if (string.IsNullOrWhiteSpace(audience)) return null;
+
+        var normalized = audience.Trim().ToLowerInvariant();
+        if (!NotificationAudience.IsValid(normalized))
+        {
+            throw new InvalidNotificationAudienceException(audience);
+        }
+        return normalized;
     }
 
     private record BizLite(int Id, string Name, string BrandPrimaryColor);

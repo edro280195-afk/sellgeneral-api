@@ -607,6 +607,14 @@ public class AppDbContext : DbContext
             entity.HasIndex(t => t.AccountId);
         });
 
+        // El historial se consulta por cuenta + destinatario (clienta vs. dueña).
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.Property(n => n.Audience).HasDefaultValue(NotificationAudience.Buyer);
+            entity.HasIndex(n => new { n.AccountId, n.Audience })
+                  .HasDatabaseName("IX_Notifications_AccountId_Audience");
+        });
+
         modelBuilder.Entity<PushSubscriptionModel>(entity =>
         {
             entity.ToTable("PushSubscriptions");

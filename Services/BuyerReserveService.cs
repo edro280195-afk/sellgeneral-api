@@ -185,13 +185,15 @@ public class BuyerReserveService : IBuyerReserveService
             gate.Release();
         }
 
-        // 5. Notificar a la vendedora (push al admin del tenant).
+        // 5. Notificar a la vendedora: dueña y administradoras de ESE negocio
+        //    (app nativa por FCM, historial de la app y paneles web).
         try
         {
-            await _push.SendNotificationToAdminsAsync(
+            await _push.SendNotificationToBusinessOwnersAsync(
+                businessId: request.BusinessId,
                 title: "Nuevo apartado 💖",
                 message: $"{myClient.Name} apartó {order.Items.First().ProductName}",
-                url: "/orders",
+                url: $"/orders/detail/{order.Id}",
                 tag: "reserve");
         }
         catch

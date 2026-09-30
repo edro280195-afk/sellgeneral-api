@@ -10,6 +10,40 @@ public interface IFcmService
     Task SendToTokenAsync(string fcmToken, string title, string body, Dictionary<string, string>? data = null);
 }
 
+/// <summary>
+/// FCM hacia los dispositivos de los CHOFERES. Tiene la misma forma que <see cref="IFcmService"/>
+/// (el de la app de clientas y vendedoras) pero sale por el proyecto de Firebase de los choferes
+/// cuando hay una segunda credencial configurada (<see cref="FcmApps.DriversAppName"/>). Un token
+/// FCM solo lo acepta el proyecto con el que se registró: con una sola credencial en el servidor,
+/// los dispositivos del otro proyecto fallaban con <c>SenderIdMismatch</c> y no recibían nada.
+/// Sin segunda credencial usa la misma que la app (por ejemplo, cuando la app de choferes nueva
+/// viva en el mismo proyecto).
+/// </summary>
+public interface IDriverFcmService : IFcmService
+{
+}
+
+/// <summary>Resuelve qué <see cref="FirebaseApp"/> usa cada canal de FCM.</summary>
+public static class FcmApps
+{
+    /// <summary>Nombre de la segunda FirebaseApp (choferes); se crea en Program.cs solo si hay credencial.</summary>
+    public const string DriversAppName = "drivers";
+
+    /// <summary>
+    /// La app con ese nombre si existe; si no, la principal (la de clientas y vendedoras).
+    /// Devuelve <c>null</c> cuando Firebase no está configurado en este servidor.
+    /// </summary>
+    public static FirebaseApp? Resolve(string? appName)
+    {
+        if (!string.IsNullOrEmpty(appName))
+        {
+            var named = FirebaseApp.GetInstance(appName);
+            if (named is not null) return named;
+        }
+        return FirebaseApp.DefaultInstance;
+    }
+}
+
 /// <summary>Resultado de una notificacion de prueba para diagnosticar el envio.</summary>
 public sealed record FcmTestResult(
     bool FirebaseConfigured,
@@ -34,16 +68,34 @@ public interface IFcmDiagnostics
 public class FcmService : IFcmService, IFcmDiagnostics
 {
     private readonly ILogger<FcmService> _logger;
+    private readonly string? _appName;
 
-    public FcmService(ILogger<FcmService> logger)
+    /// <param name="appName">
+    /// FirebaseApp a usar (<c>null</c> = la principal). Si ese nombre no existe se usa la principal.
+    /// </param>
+    public FcmService(ILogger<FcmService> logger, string? appName = null)
     {
         _logger = logger;
+        _appName = appName;
+    }
+
+    private FirebaseMessaging? Messaging()
+    {
+        var app = FcmApps.Resolve(_appName);
+        return app is null ? null : FirebaseMessaging.GetMessaging(app);
     }
 
     public async Task SendToTokensAsync(IEnumerable<string> fcmTokens, string title, string body, Dictionary<string, string>? data = null)
     {
         var tokenList = fcmTokens.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
         if (tokenList.Count == 0) return;
+
+        var messaging = Messaging();
+        if (messaging is null)
+        {
+            _logger.LogWarning("FCM no está configurado en este servidor; se omite el envío a {Count} dispositivo(s).", tokenList.Count);
+            return;
+        }
 
         // FCM multicast: máx 500 tokens por llamada
         const int chunkSize = 500;
@@ -71,7 +123,7 @@ public class FcmService : IFcmService, IFcmDiagnostics
 
             try
             {
-                var response = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(message);
+                var response = await messaging.SendEachForMulticastAsync(message);
                 _logger.LogInformation("FCM multicast: {Success}/{Total} enviados.", response.SuccessCount, chunk.Count);
 
                 // Log tokens fallidos (expirados, inválidos)
@@ -94,6 +146,13 @@ public class FcmService : IFcmService, IFcmDiagnostics
     {
         if (string.IsNullOrWhiteSpace(fcmToken)) return;
 
+        var messaging = Messaging();
+        if (messaging is null)
+        {
+            _logger.LogWarning("FCM no está configurado en este servidor; se omite el envío a un dispositivo.");
+            return;
+        }
+
         var message = new Message
         {
             Token = fcmToken,
@@ -115,7 +174,7 @@ public class FcmService : IFcmService, IFcmDiagnostics
 
         try
         {
-            var msgId = await FirebaseMessaging.DefaultInstance.SendAsync(message);
+            var msgId = await messaging.SendAsync(message);
             _logger.LogInformation("FCM enviado: {MsgId}", msgId);
         }
         catch (Exception ex)
@@ -128,7 +187,7 @@ public class FcmService : IFcmService, IFcmDiagnostics
         IEnumerable<string> fcmTokens, string title, string body,
         Dictionary<string, string>? data = null)
     {
-        var app = FirebaseApp.DefaultInstance;
+        var app = FcmApps.Resolve(_appName);
         if (app is null)
         {
             return new FcmTestResult(false, null, 0, 0, Array.Empty<string>());
@@ -163,7 +222,7 @@ public class FcmService : IFcmService, IFcmDiagnostics
         var sent = 0;
         try
         {
-            var response = await FirebaseMessaging.DefaultInstance.SendEachAsync(messages);
+            var response = await FirebaseMessaging.GetMessaging(app).SendEachAsync(messages);
             sent = response.SuccessCount;
             foreach (var item in response.Responses.Where(r => !r.IsSuccess))
             {
@@ -181,5 +240,13 @@ public class FcmService : IFcmService, IFcmDiagnostics
         }
 
         return new FcmTestResult(true, projectId, sent, tokens.Count - sent, errors);
+    }
+}
+
+/// <summary>FCM de los choferes: el mismo envío, por el proyecto de Firebase de los choferes.</summary>
+public sealed class DriverFcmService : FcmService, IDriverFcmService
+{
+    public DriverFcmService(ILogger<FcmService> logger) : base(logger, FcmApps.DriversAppName)
+    {
     }
 }

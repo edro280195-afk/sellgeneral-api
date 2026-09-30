@@ -1540,7 +1540,8 @@ public record BuyerNotificationDto(
     string? Url,
     int? OrderId,
     DateTime CreatedAt,
-    DateTime? ReadAt);
+    DateTime? ReadAt,
+    string Audience = EntregasApi.Models.NotificationAudience.Buyer);
 
 // ── Suscripcion de plataforma (Fase 1.3) ──
 

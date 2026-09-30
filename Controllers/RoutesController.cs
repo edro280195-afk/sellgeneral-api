@@ -44,6 +44,18 @@ public class RoutesController : ControllerBase
         _entitlements = entitlements;
     }
 
+    /// <summary>
+    /// Avisa SOLO al chofer de esa ruta (por el token de su ruta). Antes los cambios
+    /// de una ruta se mandaban a todos los choferes del negocio, y un chofer recibía
+    /// avisos de rutas que no eran suyas.
+    /// </summary>
+    private Task NotifyRouteDriverAsync(DeliveryRoute route, string title, string body, Dictionary<string, string>? data = null)
+    {
+        return string.IsNullOrEmpty(route.DriverToken)
+            ? Task.CompletedTask
+            : _push.NotifyDriverFcmAsync(route.DriverToken, title, body, data);
+    }
+
     /// <summary>Dominio público del negocio activo (antes el fijo App:FrontendUrl).</summary>
     private const string NenisAppUrl = "https://app.nenisapp.com";
 
@@ -169,7 +181,6 @@ public class RoutesController : ControllerBase
             _db.DeliveryRoutes.Add(route);
 
             int sortOrder = 1;
-            var createdOrderClientIds = new List<int>();
 
             foreach (var stopId in orderedIds)
             {
@@ -180,7 +191,6 @@ public class RoutesController : ControllerBase
                     if (order == null) continue;
 
                     _db.Deliveries.Add(DeliveryRetryPolicy.CreateForRoute(order, route, sortOrder++));
-                    createdOrderClientIds.Add(order.ClientId);
                 }
                 else if (stopId.StartsWith("tanda:"))
                 {
@@ -202,16 +212,13 @@ public class RoutesController : ControllerBase
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            // 🔔 Notificaciones Push (después de commit)
+            // 🔔 Aviso al chofer (después de commit). A las clientas NO se les avisa aquí: el
+            // "va en camino" le llega a cada una cuando de verdad es la siguiente de la lista
+            // (DriverController: al iniciar la ruta, al avanzar a la siguiente parada, al
+            // reordenar o al marcar en tránsito), no a todas a la vez al crear la ruta.
             int totalStops = sortOrder - 1;
             try { await _push.NotifyDriversNewRouteAsync(route.Name ?? "Nueva ruta", route.DriverToken, totalStops); }
             catch (Exception ex) { _logger.LogError(ex, "Error enviando FCM a repartidores"); }
-
-            foreach (var clientId in createdOrderClientIds.Distinct())
-            {
-                try { await _push.NotifyClientDriverEnRouteAsync(clientId); }
-                catch (Exception ex) { _logger.LogWarning(ex, "Error enviando WebPush a cliente {ClientId}", clientId); }
-            }
 
             var routeDto = await MapRouteDto(route.Id);
             return Ok(new CreateRouteResponse(routeDto, skipped));
@@ -755,7 +762,7 @@ public class RoutesController : ControllerBase
         await _db.SaveChangesAsync();
 
         await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated");
-        await _push.BroadcastToAllDriversAsync("🔄 Ruta reordenada", $"El orden de entregas de {route.Name} fue actualizado.");
+        await NotifyRouteDriverAsync(route, "🔄 Ruta reordenada", $"El orden de entregas de {route.Name} fue actualizado.");
 
         return Ok(new { Message = "Orden actualizado correctamente" });
     }
@@ -956,7 +963,7 @@ public class RoutesController : ControllerBase
         await _db.SaveChangesAsync();
 
         await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
-        await _push.BroadcastToAllDriversAsync("📦 Pedido eliminado de ruta", $"Se eliminó un pedido de {route.Name}.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
+        await NotifyRouteDriverAsync(route, "📦 Pedido eliminado de ruta", $"Se eliminó un pedido de {route.Name}.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
 
         return Ok(new { Message = "Orden eliminada de la ruta correctamente" });
     }
@@ -975,7 +982,7 @@ public class RoutesController : ControllerBase
         await _db.SaveChangesAsync();
 
         await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
-        await _push.BroadcastToAllDriversAsync("✨ Tanda eliminada de ruta",
+        await NotifyRouteDriverAsync(route, "✨ Tanda eliminada de ruta",
             $"Se eliminó una tanda de {route.Name}.",
             new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
 
@@ -1202,7 +1209,7 @@ public class RoutesController : ControllerBase
             try
             {
                 await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, route.DriverToken)).SendAsync("RouteUpdated", new { id = route.Id });
-                await _push.BroadcastToAllDriversAsync("🔄 Ruta actualizada", $"{route.Name} fue recompuesta.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
+                await NotifyRouteDriverAsync(route, "🔄 Ruta actualizada", $"{route.Name} fue recompuesta.", new Dictionary<string, string> { { "action", "REFRESH_ROUTE" } });
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Error notificando recompose"); }
 
@@ -1305,7 +1312,8 @@ public class RoutesController : ControllerBase
             try
             {
                 await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("RouteDeleted", new { Message = $"La ruta '{routeName}' fue eliminada por el administrador." });
-                await _push.BroadcastToAllDriversAsync("🚫 Ruta cancelada", $"La ruta {routeName} fue eliminada.");
+                if (!string.IsNullOrEmpty(driverToken))
+                    await _push.NotifyDriverFcmAsync(driverToken, "🚫 Ruta cancelada", $"La ruta {routeName} fue eliminada.");
             }
             catch { }
 

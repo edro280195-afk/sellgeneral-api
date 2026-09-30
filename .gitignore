@@ -488,6 +488,7 @@ $RECYCLE.BIN/
 *.swp
 # Llaves secretas de Google y Firebase (NUNCA SUBIR)
 firebase-service-account.json
+firebase-drivers-service-account.json
 cami-voz-v2.json
 
 # Config local con el connection string real de la base de datos (NUNCA SUBIR)

@@ -32,6 +32,15 @@ El archivo `firebase-service-account.json` está ignorado por Git. No copies
 claves privadas a `appsettings.json`, al APK, al bundle iOS ni a esta
 documentación.
 
+### Segundo proyecto de Firebase para choferes (opcional)
+
+Un token FCM solo lo acepta el proyecto con el que se registró. Los avisos a
+choferes salen por `IDriverFcmService`, que usa una segunda `FirebaseApp`
+llamada `drivers` si existe una credencial aparte: `Firebase:DriversServiceAccountPath`
+(por defecto `firebase-drivers-service-account.json`, también se busca en
+`/etc/secrets/`, donde Render monta los Secret Files). Sin ese archivo, los
+choferes usan la misma credencial que la app. El archivo está ignorado por Git.
+
 ## Android
 
 La aplicación ya tiene:

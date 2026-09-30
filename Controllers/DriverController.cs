@@ -33,10 +33,11 @@ public class DriverController : ControllerBase
     private readonly ICamiService _cami;
     private readonly ICloudinaryService _cloudinary;
     private readonly ICurrentTenant _tenant;
+    private readonly ILogger<DriverController>? _logger;
 
     public DriverController(AppDbContext db, IHubContext<DeliveryHub> hub,
         IPushNotificationService push, ICamiService cami, ICloudinaryService cloudinary,
-        ICurrentTenant tenant)
+        ICurrentTenant tenant, ILogger<DriverController>? logger = null)
     {
         _db = db;
         _hub = hub;
@@ -44,6 +45,23 @@ public class DriverController : ControllerBase
         _cami = cami;
         _cloudinary = cloudinary;
         _tenant = tenant;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Avisa a la vendedora (dueña y administradoras del negocio de la ruta) de algo
+    /// que pasó en el reparto. Un fallo del push no debe tumbar la operación del chofer.
+    /// </summary>
+    private async Task NotifySellersAsync(int businessId, string title, string message, string? url, string tag)
+    {
+        try
+        {
+            await _push.SendNotificationToBusinessOwnersAsync(businessId, title, message, url, tag);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "No pude avisar a la vendedora del negocio {BusinessId} ({Tag}).", businessId, tag);
+        }
     }
 
     /// <summary>GET /api/driver/{token} - Obtener ruta del repartidor</summary>
@@ -222,6 +240,10 @@ public class DriverController : ControllerBase
             .FirstOrDefaultAsync(d => d.Id == deliveryId && d.DeliveryRouteId == route.Id);
         if (delivery == null) return NotFound("Entrega no encontrada.");
 
+        // ¿Ya era la parada en curso? Entonces su clienta ya recibió su "va en camino":
+        // solo se vuelve a avisar cuando de verdad le toca de nuevo.
+        var wasAlreadyCurrent = delivery.Status == DeliveryStatus.InTransit;
+
         // Reset anteriores InTransit
         var previousInTransit = await _db.Deliveries
             .Where(d => d.DeliveryRouteId == route.Id && d.Status == DeliveryStatus.InTransit)
@@ -244,7 +266,7 @@ public class DriverController : ControllerBase
             await _hub.Clients.Group(SignalRGroupNames.Order(_tenant.ActiveBusinessId, delivery.Order.AccessToken))
                 .SendAsync("DeliveryUpdate", new { Status = "InTransit", Message = "¡El repartidor va en camino hacia ti!" });
 
-            if (delivery.Order.ClientId > 0)
+            if (!wasAlreadyCurrent && delivery.Order.ClientId > 0)
                 await _push.NotifyClientDriverEnRouteAsync(delivery.Order.ClientId);
 
             var orderForCami = await _db.Orders
@@ -529,6 +551,7 @@ public class DriverController : ControllerBase
         // ── Flujo orden regular ──
         // Solo procesamos si no estaba ya entregado (para evitar doble suma de puntos si le pican dos veces)
         List<PaymentInputDto>? parsedPayments = null;
+        var amountCollectedByDriver = 0m;
         if (delivery.Status != DeliveryStatus.Delivered)
         {
             delivery.Status = DeliveryStatus.Delivered;
@@ -570,15 +593,8 @@ public class DriverController : ControllerBase
                     });
                 }
 
-                var amountCollected = parsedPayments.Sum(x => x.Amount);
-                if (amountCollected > 0)
-                {
-                    await _push.SendNotificationToAdminsAsync(
-                        "💰 Pago Registrado por Repartidor",
-                        $"Se ingresaron {amountCollected:C} del pedido #{delivery.Order!.Id} ({delivery.Order.Client?.Name})",
-                        tag: "payment-received"
-                    );
-                }
+                // El aviso a la vendedora se manda después de guardar la entrega y los pagos.
+                amountCollectedByDriver = parsedPayments.Sum(x => x.Amount);
             }
 
             // -----------------------------------------------------------
@@ -605,6 +621,16 @@ public class DriverController : ControllerBase
         if (photos != null) await SavePhotos(delivery, photos, EvidenceType.DeliveryProof);
 
         await _db.SaveChangesAsync();
+
+        if (amountCollectedByDriver > 0)
+        {
+            await NotifySellersAsync(
+                route.BusinessId,
+                "💰 Pago Registrado por Repartidor",
+                $"Se ingresaron {amountCollectedByDriver:C} del pedido #{(delivery.Order!.OrderNumber > 0 ? delivery.Order.OrderNumber : delivery.Order.Id)} ({delivery.Order.Client?.Name})",
+                url: $"/orders/detail/{delivery.Order.Id}",
+                tag: "payment-received");
+        }
 
         if (delivery.Order!.ClientId > 0)
             await _push.NotifyClientDeliveredAsync(delivery.Order.ClientId);
@@ -664,11 +690,12 @@ public class DriverController : ControllerBase
         var clientName = delivery.Order?.Client?.Name
             ?? delivery.TandaParticipant?.Client?.Name
             ?? "Cliente";
-        await _push.SendNotificationToAdminsAsync(
+        await NotifySellersAsync(
+            route.BusinessId,
             "⚠️ Entrega Fallida",
             $"{clientName} no recibió el pedido: {req.Reason}",
-            tag: "delivery-failed"
-        );
+            url: delivery.OrderId is int failedOrderId ? $"/orders/detail/{failedOrderId}" : "/routes",
+            tag: "delivery-failed");
 
         // Notificar Admin Dashboard
         await _hub.Clients.Group(SignalRGroupNames.Route(_tenant.ActiveBusinessId, driverToken)).SendAsync("DeliveryStatusUpdate", new { delivery.Id, Status = "NotDelivered" });
@@ -784,11 +811,12 @@ public class DriverController : ControllerBase
 
         if (autoReturned > 0)
         {
-            await _push.SendNotificationToAdminsAsync(
+            await NotifySellersAsync(
+                route.BusinessId,
                 "↩️ Bolsas devueltas al terminar ruta",
                 $"{autoReturned} bolsa(s) regresaron sin entregar en la ruta #{routeId}. Revisa el inventario.",
-                tag: "packages-returned"
-            );
+                url: "/seller/inventory",
+                tag: "packages-returned");
         }
     }
 

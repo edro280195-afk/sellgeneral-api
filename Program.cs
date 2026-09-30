@@ -83,6 +83,47 @@ catch (Exception ex)
     Console.WriteLine("[Firebase] Las notificaciones FCM estarán deshabilitadas.");
 }
 
+// ── 2b. Segundo proyecto de Firebase (opcional) para los CHOFERES ──
+// Un token FCM solo lo acepta el proyecto con el que se registró. La app de clientas y
+// vendedoras usa el proyecto principal (arriba); los dispositivos de choferes pueden ser de
+// OTRO proyecto (la app de choferes anterior), y con una sola credencial fallaban con
+// SenderIdMismatch. Si existe esta segunda credencial, los avisos a choferes salen por ella;
+// si no, usan la principal (p. ej. cuando la app de choferes nueva viva en el mismo proyecto).
+try
+{
+    var driversCredPath = builder.Configuration["Firebase:DriversServiceAccountPath"];
+    if (string.IsNullOrEmpty(driversCredPath))
+    {
+        driversCredPath = Path.Combine(builder.Environment.ContentRootPath, "firebase-drivers-service-account.json");
+    }
+    if (!File.Exists(driversCredPath))
+    {
+        // Render monta los "Secret Files" en /etc/secrets.
+        driversCredPath = new[]
+        {
+            Path.Combine("/etc/secrets", Path.GetFileName(driversCredPath)),
+            "/etc/secrets/firebase-drivers-service-account.json",
+        }.FirstOrDefault(File.Exists) ?? driversCredPath;
+    }
+
+    if (File.Exists(driversCredPath))
+    {
+        var driversCredential = GoogleCredential.FromFile(driversCredPath);
+        FirebaseApp.Create(new AppOptions { Credential = driversCredential }, FcmApps.DriversAppName);
+        var driversProject = (driversCredential.UnderlyingCredential as Google.Apis.Auth.OAuth2.ServiceAccountCredential)?.ProjectId;
+        Console.WriteLine($"🔥 Firebase de choferes conectado (proyecto: {driversProject ?? "desconocido"}).");
+    }
+    else
+    {
+        Console.WriteLine("ℹ️ Sin credencial aparte para choferes: sus avisos FCM usan el mismo proyecto de Firebase que la app.");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[Firebase] No se pudo inicializar el Firebase de choferes: {ex.Message}");
+    Console.WriteLine("[Firebase] Los avisos a choferes usarán el proyecto principal.");
+}
+
 // EPPlus license (NonCommercial)
 ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
@@ -261,9 +302,11 @@ builder.Services.AddScoped<ISuppliersService, SuppliersService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 // 🔥 Aquí está el oro que te decía. Ya tienes la inyección lista.
-builder.Services.AddSingleton<FcmService>();
+builder.Services.AddSingleton<FcmService>(sp => new FcmService(sp.GetRequiredService<ILogger<FcmService>>()));
 builder.Services.AddSingleton<IFcmService>(sp => sp.GetRequiredService<FcmService>());
 builder.Services.AddSingleton<IFcmDiagnostics>(sp => sp.GetRequiredService<FcmService>());
+// Avisos a choferes: por su propio proyecto de Firebase si hay segunda credencial (ver 2b arriba).
+builder.Services.AddSingleton<IDriverFcmService>(sp => new DriverFcmService(sp.GetRequiredService<ILogger<FcmService>>()));
 builder.Services.AddScoped<ISalesPeriodService, SalesPeriodService>();
 builder.Services.AddScoped<IGeminiService, GeminiService>();
 builder.Services.AddScoped<ICamiService, CamiService>();

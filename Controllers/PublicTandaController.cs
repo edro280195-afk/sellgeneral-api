@@ -27,6 +27,7 @@ public class PublicTandaController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IHubContext<DeliveryHub> _hub;
     private readonly IPushNotificationService _push;
+    private readonly ILogger<PublicTandaController>? _logger;
 
     public PublicTandaController(
         ITandaService tandaService,
@@ -34,7 +35,8 @@ public class PublicTandaController : ControllerBase
         IConfiguration config,
         IHttpClientFactory httpClientFactory,
         IHubContext<DeliveryHub> hub,
-        IPushNotificationService push)
+        IPushNotificationService push,
+        ILogger<PublicTandaController>? logger = null)
     {
         _tandaService = tandaService;
         _db = db;
@@ -42,6 +44,7 @@ public class PublicTandaController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _hub = hub;
         _push = push;
+        _logger = logger;
     }
 
     [HttpGet("{token}")]
@@ -269,11 +272,22 @@ public class PublicTandaController : ControllerBase
                     Type = "tanda_card_payment"
                 });
 
-                await _push.SendNotificationToAdminsAsync(
-                    $"Pago tanda: ${tanda.WeeklyAmount:F2}",
-                    $"{clientName} pago la semana {req.WeekNumber} de {tanda.Name}.",
-                    tag: "tanda-payment"
-                );
+                // Aviso a la vendedora: dueña y administradoras de ESTE negocio. El pago ya
+                // quedó registrado: un fallo del push no debe decirle a la clienta que no se procesó.
+                try
+                {
+                    await _push.SendNotificationToBusinessOwnersAsync(
+                        tanda.BusinessId,
+                        $"Pago tanda: ${tanda.WeeklyAmount:F2}",
+                        $"{clientName} pago la semana {req.WeekNumber} de {tanda.Name}.",
+                        url: "/tandas",
+                        tag: "tanda-payment"
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "No pude avisar a la vendedora del pago de la tanda {TandaId}.", tanda.Id);
+                }
             }
 
             return Ok(new
