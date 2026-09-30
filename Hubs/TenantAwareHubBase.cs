@@ -114,6 +114,43 @@ public abstract class TenantAwareHubBase : Hub
         return memberships.Count == 1 ? memberships[0] : null;
     }
 
+    /// <summary>
+    /// Igual que <see cref="ResolveBusinessFromJwtAsync"/> pero SOLO para dueña o
+    /// administradora (<see cref="MembershipRole.Owner"/> / <see cref="MembershipRole.Admin"/>):
+    /// es la llave de todo lo que es de la vendedora (el grupo "Admins" con los avisos en
+    /// tiempo real de su tienda, y el vivo). Un chofer o un escaneador del negocio NO entra.
+    /// La app de Flutter es solo de clientas y vendedoras; los choferes tendrán su propia app.
+    ///
+    /// Es estricta: con <c>X-Business-Id</c> tiene que ser un negocio del que sea dueña o
+    /// administradora (no cae a "el único que tiene"); sin él, solo se acepta si administra
+    /// exactamente uno.
+    /// </summary>
+    protected async Task<int?> ResolveSellerBusinessFromJwtAsync(string? requestedBusinessIdHeader, CancellationToken ct = default)
+    {
+        var accountId = ReadAccountId(Context.User);
+        if (accountId is null) return null;
+
+        var managedBusinesses = await Db.Memberships
+            .AsNoTracking()
+            .Where(m => m.AccountId == accountId.Value
+                        && (m.Role == MembershipRole.Owner || m.Role == MembershipRole.Admin)
+                        && m.Business!.IsActive)
+            .Select(m => m.BusinessId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (managedBusinesses.Count == 0) return null;
+
+        if (!string.IsNullOrWhiteSpace(requestedBusinessIdHeader))
+        {
+            return int.TryParse(requestedBusinessIdHeader, out var requested) && managedBusinesses.Contains(requested)
+                ? requested
+                : null;
+        }
+
+        return managedBusinesses.Count == 1 ? managedBusinesses[0] : null;
+    }
+
     /// <summary>Guarda el BusinessId en Context.Items.</summary>
     protected void SetBusiness(int businessId)
     {

@@ -26,7 +26,8 @@ public class LogisticsHub : TenantAwareHubBase
 
     public async Task<bool> JoinAdminGroup(string? businessIdHeader = null)
     {
-        var businessId = await ResolveBusinessFromJwtAsync(businessIdHeader);
+        // Solo dueña/administradora: choferes y escaneadores no reciben los avisos de la tienda.
+        var businessId = await ResolveSellerBusinessFromJwtAsync(businessIdHeader);
         if (businessId is null) return false;
 
         SetBusiness(businessId.Value);

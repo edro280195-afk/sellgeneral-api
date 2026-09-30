@@ -16,12 +16,12 @@ public class LiveHub : TenantAwareHubBase
     {
     }
 
-    // ─── VENDEDORA (admin, por membership) ───
+    // ─── VENDEDORA (dueña o administradora, por membership) ───
 
     /// <summary>Se une al grupo del vivo de su propia tienda para poder anunciar.</summary>
     public async Task<bool> JoinAdminLive(string? businessIdHeader = null)
     {
-        var businessId = await ResolveBusinessFromJwtAsync(businessIdHeader);
+        var businessId = await ResolveSellerBusinessFromJwtAsync(businessIdHeader);
         if (businessId is null) return false;
 
         SetBusiness(businessId.Value);
@@ -36,7 +36,7 @@ public class LiveHub : TenantAwareHubBase
     /// </summary>
     public async Task<bool> AnnounceProduct(int productId, string? businessIdHeader = null)
     {
-        var businessId = await ResolveBusinessFromJwtAsync(businessIdHeader);
+        var businessId = await ResolveSellerBusinessFromJwtAsync(businessIdHeader);
         if (businessId is null) return false;
         SetBusiness(businessId.Value);
 
