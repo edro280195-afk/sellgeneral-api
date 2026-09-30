@@ -1414,6 +1414,15 @@ public record StoreFollowerAdminDto(
 
 public record RegisterDeviceRequest(string Token, string Platform);
 
+/// <summary>Diagnostico de la notificacion de prueba a los dispositivos de la cuenta.</summary>
+public record DevicePushTestDto(
+    bool FirebaseConfigured,
+    string? ProjectId,
+    int TokensRegistered,
+    int Sent,
+    int Failed,
+    List<string> Errors);
+
 // ── Comunidad de tienda: en vivo ahora + novedades + VIP ──
 
 public record StartLiveAnnouncementRequest(string? Title);

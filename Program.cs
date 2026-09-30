@@ -44,13 +44,28 @@ try
         firebaseCredPath = Path.Combine(builder.Environment.ContentRootPath, "firebase-adminsdk.json");
     }
 
+    // Render monta los "Secret Files" en /etc/secrets (no en la carpeta de la
+    // app), asi que si la ruta configurada no existe se prueban esos lugares.
+    if (!File.Exists(firebaseCredPath))
+    {
+        var candidates = new[]
+        {
+            Path.Combine("/etc/secrets", Path.GetFileName(firebaseCredPath)),
+            "/etc/secrets/firebase-service-account.json",
+            "/etc/secrets/firebase-adminsdk.json",
+        };
+        firebaseCredPath = candidates.FirstOrDefault(File.Exists) ?? firebaseCredPath;
+    }
+
     if (File.Exists(firebaseCredPath))
     {
+        var firebaseCredential = GoogleCredential.FromFile(firebaseCredPath);
         FirebaseApp.Create(new AppOptions
         {
-            Credential = GoogleCredential.FromFile(firebaseCredPath)
+            Credential = firebaseCredential
         });
-        Console.WriteLine("🔥 Motor de Firebase (Push) conectado con éxito.");
+        var firebaseProject = (firebaseCredential.UnderlyingCredential as Google.Apis.Auth.OAuth2.ServiceAccountCredential)?.ProjectId;
+        Console.WriteLine($"🔥 Motor de Firebase conectado con éxito (proyecto: {firebaseProject ?? "desconocido"}).");
     }
     else
     {
@@ -246,7 +261,9 @@ builder.Services.AddScoped<ISuppliersService, SuppliersService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 // 🔥 Aquí está el oro que te decía. Ya tienes la inyección lista.
-builder.Services.AddSingleton<IFcmService, FcmService>();
+builder.Services.AddSingleton<FcmService>();
+builder.Services.AddSingleton<IFcmService>(sp => sp.GetRequiredService<FcmService>());
+builder.Services.AddSingleton<IFcmDiagnostics>(sp => sp.GetRequiredService<FcmService>());
 builder.Services.AddScoped<ISalesPeriodService, SalesPeriodService>();
 builder.Services.AddScoped<IGeminiService, GeminiService>();
 builder.Services.AddScoped<ICamiService, CamiService>();
