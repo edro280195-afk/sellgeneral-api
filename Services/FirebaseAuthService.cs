@@ -79,6 +79,16 @@ public sealed class FirebaseAuthService(
                 "Firebase Admin no está disponible para validar sesiones.");
             return null;
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Un token con forma inválida (p. ej. sin las 3 partes de un JWT)
+            // podía escapar como FormatException/JsonException y terminar en
+            // 500. Para quien llama sigue siendo simplemente "token inválido".
+            logger.LogWarning(
+                ex,
+                "Se rechazó un ID token con formato inválido durante el intercambio de sesión.");
+            return null;
+        }
     }
 
     public async Task<bool> DeleteUserAsync(

@@ -50,7 +50,7 @@ public class BuyerDeviceService : IBuyerDeviceService
         var result = await _fcm.SendTestAsync(
             tokens,
             "Notificaciones activas",
-            "Si ves esto, tu telefono ya recibe avisos de Neni's App.",
+            "Si ves esto, tu teléfono ya recibe avisos de Neni's App.",
             new Dictionary<string, string> { ["type"] = "test" });
 
         return new DevicePushTestDto(
