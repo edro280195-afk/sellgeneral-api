@@ -89,6 +89,131 @@ public class BuyerTandasServiceTests
     }
 
     [Fact]
+    public async Task GetMyTandas_CompletedTandaWithoutParticipation_IsNotOffered()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        ctx.Clients.Add(new Client
+        {
+            BusinessId = business.Id,
+            AccountId = account.Id,
+            Name = "Ana",
+            NormalizedName = "ana",
+        });
+        var product = new TandaProduct
+        {
+            BusinessId = business.Id,
+            Name = "Licuadora",
+            BasePrice = 3000m,
+        };
+        ctx.TandaProducts.Add(product);
+        await ctx.SaveChangesAsync();
+
+        ctx.Tandas.Add(NewTanda(business.Id, product.Id, "Terminada", 10, 300m,
+            DateTime.UtcNow.Date.AddDays(-80), status: "Completed"));
+        ctx.Tandas.Add(NewTanda(business.Id, product.Id, "Abierta", 10, 300m,
+            DateTime.UtcNow.Date.AddDays(-7)));
+        await ctx.SaveChangesAsync();
+
+        var result = await new BuyerTandasService(ctx).GetMyTandasAsync(account.Id);
+
+        var entry = Assert.Single(result);
+        Assert.Equal("Abierta", entry.Name);
+    }
+
+    [Fact]
+    public async Task GetMyTandas_ActiveTandaPastItsLastWeek_IsNotOffered()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        ctx.Clients.Add(new Client
+        {
+            BusinessId = business.Id,
+            AccountId = account.Id,
+            Name = "Ana",
+            NormalizedName = "ana",
+        });
+        var product = new TandaProduct
+        {
+            BusinessId = business.Id,
+            Name = "Licuadora",
+            BasePrice = 3000m,
+        };
+        ctx.TandaProducts.Add(product);
+        await ctx.SaveChangesAsync();
+
+        // 10 semanas que empezaron hace 100 días: el calendario ya se acabó,
+        // pero la vendedora nunca la cerró (Status sigue "Active").
+        ctx.Tandas.Add(NewTanda(business.Id, product.Id, "Olvidada", 10, 300m,
+            DateTime.UtcNow.Date.AddDays(-100)));
+        // En su última semana (día 63 = semana 10 de 10): todavía vigente.
+        ctx.Tandas.Add(NewTanda(business.Id, product.Id, "Ultima semana", 10, 300m,
+            DateTime.UtcNow.Date.AddDays(-63)));
+        await ctx.SaveChangesAsync();
+
+        var result = await new BuyerTandasService(ctx).GetMyTandasAsync(account.Id);
+
+        var entry = Assert.Single(result);
+        Assert.Equal("Ultima semana", entry.Name);
+    }
+
+    [Fact]
+    public async Task GetMyTandas_CompletedTandaIParticipatedIn_IsKept()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
+        ctx.Businesses.Add(business);
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
+
+        var client = new Client
+        {
+            BusinessId = business.Id,
+            AccountId = account.Id,
+            Name = "Ana",
+            NormalizedName = "ana",
+        };
+        ctx.Clients.Add(client);
+        var product = new TandaProduct
+        {
+            BusinessId = business.Id,
+            Name = "Licuadora",
+            BasePrice = 3000m,
+        };
+        ctx.TandaProducts.Add(product);
+        await ctx.SaveChangesAsync();
+
+        var tanda = NewTanda(business.Id, product.Id, "Mi historial", 10, 300m,
+            DateTime.UtcNow.Date.AddDays(-80), status: "Completed");
+        ctx.Tandas.Add(tanda);
+        await ctx.SaveChangesAsync();
+        ctx.TandaParticipants.Add(new TandaParticipant
+        {
+            TandaId = tanda.Id,
+            CustomerId = client.Id,
+            AssignedTurn = 1,
+        });
+        await ctx.SaveChangesAsync();
+
+        var result = await new BuyerTandasService(ctx).GetMyTandasAsync(account.Id);
+
+        var entry = Assert.Single(result);
+        Assert.Equal("Mi historial", entry.Name);
+        Assert.True(entry.IsMine);
+    }
+
+    [Fact]
     public async Task GetMyTandas_ParticipationWithPayment_MarksHasPaidAndWinner()
     {
         using var ctx = TestDbContextFactory.Create();

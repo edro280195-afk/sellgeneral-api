@@ -9,7 +9,7 @@ namespace EntregasApi.Tests;
 public class BuyerFeedPostsServiceTests
 {
     [Fact]
-    public async Task GetStorePosts_WithNoAccessToStore_ThrowsNotFound()
+    public async Task GetStorePosts_NonFollower_SeesPublicPostsAndLockedVip()
     {
         using var ctx = NewContext();
         var business = NewBusiness();
@@ -17,9 +17,33 @@ public class BuyerFeedPostsServiceTests
         var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
         ctx.Accounts.Add(account);
         await ctx.SaveChangesAsync();
+        ctx.StorePosts.Add(new StorePost { BusinessId = business.Id, Body = "Pública" });
+        ctx.StorePosts.Add(new StorePost
+        {
+            BusinessId = business.Id, Body = "Solo VIP", IsVipOnly = true,
+        });
+        await ctx.SaveChangesAsync();
+
+        var posts = await new BuyerFeedPostsService(ctx)
+            .GetStorePostsAsync(account.Id, business.Id, 1, 20);
+
+        Assert.Equal(2, posts.Count);
+        var vip = Assert.Single(posts, p => p.IsVipOnly);
+        Assert.True(vip.IsLocked);
+        Assert.Equal("", vip.Body);
+        Assert.Contains(posts, p => p.Body == "Pública" && !p.IsLocked);
+    }
+
+    [Fact]
+    public async Task GetStorePosts_WithNonexistentBusiness_ThrowsNotFound()
+    {
+        using var ctx = NewContext();
+        var account = new Account { DisplayName = "Ana", Phone = "8680000001" };
+        ctx.Accounts.Add(account);
+        await ctx.SaveChangesAsync();
 
         await Assert.ThrowsAsync<StoreNotFoundException>(() =>
-            new BuyerFeedPostsService(ctx).GetStorePostsAsync(account.Id, business.Id, 1, 20));
+            new BuyerFeedPostsService(ctx).GetStorePostsAsync(account.Id, 9999, 1, 20));
     }
 
     [Fact]

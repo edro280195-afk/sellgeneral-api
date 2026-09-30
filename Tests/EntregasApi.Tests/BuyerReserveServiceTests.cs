@@ -29,7 +29,7 @@ public class BuyerReserveServiceTests
                 new ReserveProductRequest(business.Id, product.Id),
                 CancellationToken.None));
 
-        Assert.Contains("no está en tu cuenta", ex.Message);
+        Assert.Contains("ser clienta de esta tienda", ex.Message);
     }
 
     [Fact]

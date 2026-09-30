@@ -19,7 +19,7 @@ public class BuyerStoreServiceTests
     }
 
     [Fact]
-    public async Task GetStore_WithNoClaimedClientInBusiness_ThrowsNotFound()
+    public async Task GetStore_WithNoClaimedClientInBusiness_ShowsPublicProfile()
     {
         using var ctx = TestDbContextFactory.Create();
         var business = NewBusiness("Regi Bazar", "regibazar", "#FF0072");
@@ -28,10 +28,14 @@ public class BuyerStoreServiceTests
         ctx.Accounts.Add(account);
         await ctx.SaveChangesAsync();
 
-        // No creamos Client en este Business.
+        // No creamos Client en este Business: es quien abre el enlace de la
+        // tienda compartido en un live. Debe poder ver la tienda y seguirla.
 
-        await Assert.ThrowsAsync<StoreNotFoundException>(
-            () => new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id));
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(account.Id, business.Id);
+
+        Assert.Equal(business.Id, store.BusinessId);
+        Assert.False(store.IsFollowing);
+        Assert.Equal(0, store.Points.CurrentPoints);
     }
 
     [Fact]
@@ -272,8 +276,12 @@ public class BuyerStoreServiceTests
         });
         await ctx.SaveChangesAsync();
 
-        await Assert.ThrowsAsync<StoreNotFoundException>(
-            () => new BuyerStoreService(ctx).GetStoreAsync(mine.Id, business.Id));
+        // Ver la tienda ya no exige ser clienta, pero los puntos de "Otra"
+        // (999) jamás deben aparecerle a "Mía".
+        var store = await new BuyerStoreService(ctx).GetStoreAsync(mine.Id, business.Id);
+
+        Assert.Equal(0, store.Points.CurrentPoints);
+        Assert.False(store.IsFollowing);
     }
 
     [Fact]

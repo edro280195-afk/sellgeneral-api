@@ -75,10 +75,14 @@ public class BuyerTandasService : IBuyerTandasService
 
         var myTandaIds = myByKey.Keys.Select(k => k.TandaId).ToHashSet();
 
-        var targetStatuses = new[] { "Active", "Draft", "Completed" };
+        // "Disponibles" solo incluye tandas que todavía pueden recibir gente
+        // (Active/Draft). Una tanda Completed solo se muestra si la clienta
+        // participó en ella (entra por myTandaIds): ofrecerle inscribirse en
+        // una tanda terminada era engañoso.
+        var openStatuses = new[] { "Active", "Draft" };
         var tandas = await _db.Tandas.AsNoTracking().IgnoreQueryFilters()
             .Where(t =>
-                (businessIds.Contains(t.BusinessId) && targetStatuses.Contains(t.Status))
+                (businessIds.Contains(t.BusinessId) && openStatuses.Contains(t.Status))
                 || myTandaIds.Contains(t.Id))
             .Select(t => new
             {
@@ -134,6 +138,15 @@ public class BuyerTandasService : IBuyerTandasService
 
             if (myParticipation is null)
             {
+                // Una tanda que ya recorrió todas sus semanas por calendario
+                // (aunque la vendedora no la haya cerrado, sigue "Active") no
+                // se ofrece como disponible: ya nadie puede inscribirse.
+                if (TandaWeekCalculator.CalculateCurrentWeek(t.StartDate, today)
+                    > t.TotalWeeks)
+                {
+                    continue;
+                }
+
                 // Disponible: cualquier Client de la tienda sirve como referencia.
                 var fallbackClient = clients.First(c => c.BusinessId == t.BusinessId);
                 result.Add(new MyTandaDto(

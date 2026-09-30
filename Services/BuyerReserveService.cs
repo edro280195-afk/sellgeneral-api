@@ -96,7 +96,9 @@ public class BuyerReserveService : IBuyerReserveService
 
         if (myClient is null)
         {
-            throw new ReserveNotFoundException("Esta tienda no está en tu cuenta.");
+            throw new ReserveNotFoundException(
+                "Para apartar necesitas ser clienta de esta tienda. Sigue la tienda y "
+                + "pídele a la vendedora que te registre con tu primer pedido.");
         }
 
         // 2. Candado en proceso por producto: dos "Apartar" simultáneos

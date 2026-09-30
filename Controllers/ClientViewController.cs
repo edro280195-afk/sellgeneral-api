@@ -27,6 +27,8 @@ public class ClientViewController : ControllerBase
     private readonly IConfiguration _config;
     private readonly ILogger<ClientViewController> _logger;
 
+    private readonly ICurrentAccount _currentAccount;
+
     public ClientViewController(
         AppDbContext db,
         IHubContext<DeliveryHub> hub,
@@ -34,8 +36,10 @@ public class ClientViewController : ControllerBase
         ICamiService cami,
         ICurrentTenant tenant,
         IConfiguration config,
-        ILogger<ClientViewController> logger)
+        ILogger<ClientViewController> logger,
+        ICurrentAccount currentAccount)
     {
+        _currentAccount = currentAccount;
         _db = db;
         _hub = hub;
         _push = push;
@@ -43,6 +47,26 @@ public class ClientViewController : ControllerBase
         _tenant = tenant;
         _config = config;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// ¿El enlace del pedido ya venció para quien lo está usando? El vencimiento
+    /// protege el enlace anónimo que circula por WhatsApp, no a la dueña del
+    /// pedido: si quien llama tiene sesión y el pedido es de una de sus fichas de
+    /// clienta, el pedido sigue siendo suyo aunque el enlace haya vencido. Sin
+    /// esto la app le mostraba "Este enlace ha expirado" sobre un pedido que ella
+    /// misma ve como activo en su Inicio.
+    /// </summary>
+    private async Task<bool> IsLinkExpiredAsync(Order order)
+    {
+        if (order.ExpiresAt >= DateTime.UtcNow) return false;
+
+        var accountId = _currentAccount.IsAuthenticated ? _currentAccount.AccountId : null;
+        if (accountId is null || order.ClientId <= 0) return true;
+
+        var isOwner = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
+            .AnyAsync(c => c.Id == order.ClientId && c.AccountId == accountId.Value);
+        return !isOwner;
     }
 
     /// <summary>GET /api/pedido/{token} - Vista pública del pedido</summary>
@@ -61,7 +85,7 @@ public class ClientViewController : ControllerBase
         if (order == null)
             return NotFound("Pedido no encontrado.");
 
-        if (order.ExpiresAt < DateTime.UtcNow)
+        if (await IsLinkExpiredAsync(order))
             return Gone("Este enlace ha expirado.");
 
         // Datos del negocio (branding para la experiencia V3)
@@ -250,7 +274,7 @@ public class ClientViewController : ControllerBase
         if (order == null)
             return NotFound(new { message = "Pedido no encontrado." });
 
-        if (order.ExpiresAt < DateTime.UtcNow)
+        if (await IsLinkExpiredAsync(order))
             return StatusCode(410, new { message = "Este enlace ha expirado." });
 
         // Solo se puede calificar un pedido entregado
@@ -323,7 +347,7 @@ public class ClientViewController : ControllerBase
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
 
         if (order == null) return NotFound(new { message = "Pedido no encontrado." });
-        if (order.ExpiresAt < DateTime.UtcNow) return StatusCode(410, new { message = "Este enlace ha expirado." });
+        if (await IsLinkExpiredAsync(order)) return StatusCode(410, new { message = "Este enlace ha expirado." });
 
         // Solo se puede confirmar si estaba Pendiente o Pospuesto
         if (order.Status == Models.OrderStatus.Pending || order.Status == Models.OrderStatus.Postponed)
@@ -463,7 +487,7 @@ public class ClientViewController : ControllerBase
 
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.AccessToken == accessToken);
         if (order == null) return NotFound(new { message = "Pedido no encontrado." });
-        if (order.ExpiresAt < DateTime.UtcNow) return StatusCode(410, new { message = "Este enlace ha expirado." });
+        if (await IsLinkExpiredAsync(order)) return StatusCode(410, new { message = "Este enlace ha expirado." });
 
         order.DeliveryInstructions = instructions;
         await _db.SaveChangesAsync();

@@ -1099,7 +1099,10 @@ public class OrdersController : ControllerBase
 
         order.PostponedAt = req.PostponedAt;
         order.PostponedNote = req.PostponedNote;
-        order.Total = order.Subtotal + order.ShippingCost;
+        // Debe restar el descuento (premio canjeado, cumpleaños…): antes se
+        // reescribía Subtotal + Envío y el descuento desaparecía en silencio
+        // aunque los puntos de la clienta ya se hubieran descontado.
+        order.Total = Math.Max(0, order.Subtotal + order.ShippingCost - order.DiscountAmount);
 
         await _db.SaveChangesAsync();
 

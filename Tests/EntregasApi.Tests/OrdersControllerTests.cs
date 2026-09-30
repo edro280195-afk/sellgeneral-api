@@ -137,6 +137,83 @@ public class OrdersControllerTests
         Assert.NotEqual(firstBusinessOrder.Id, secondBusinessOrder.Id);
     }
 
+    /// <summary>
+    /// Regresión: cambiar el estatus de un pedido con un premio ya canjeado
+    /// (o cualquier descuento) reescribía Total = Subtotal + Envío, borrando el
+    /// descuento mientras los puntos de la clienta ya se habían descontado.
+    /// </summary>
+    [Fact]
+    public async Task UpdateStatus_KeepsDiscountInTotal()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var order = await SeedOrderAsync(ctx);
+        order.Subtotal = 300m;
+        order.ShippingCost = 60m;
+        order.DiscountAmount = 50m;
+        order.Total = 310m; // 300 + 60 - 50
+        await ctx.SaveChangesAsync();
+        var controller = CreateControllerWithBusiness(ctx);
+
+        var result = await controller.UpdateStatus(
+            order.Id,
+            new UpdateOrderStatusRequest("Confirmed", null, null, null));
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        ctx.ChangeTracker.Clear();
+        var persisted = await ctx.Orders.SingleAsync(o => o.Id == order.Id);
+        Assert.Equal(OrderStatus.Confirmed, persisted.Status);
+        Assert.Equal(50m, persisted.DiscountAmount);
+        Assert.Equal(310m, persisted.Total);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WithoutDiscount_TotalIsSubtotalPlusShipping()
+    {
+        using var ctx = TestDbContextFactory.Create();
+        var order = await SeedOrderAsync(ctx);
+        order.Subtotal = 300m;
+        order.ShippingCost = 60m;
+        order.Total = 360m;
+        await ctx.SaveChangesAsync();
+        var controller = CreateControllerWithBusiness(ctx);
+
+        await controller.UpdateStatus(
+            order.Id,
+            new UpdateOrderStatusRequest("Confirmed", null, null, null));
+
+        ctx.ChangeTracker.Clear();
+        Assert.Equal(360m, (await ctx.Orders.SingleAsync(o => o.Id == order.Id)).Total);
+    }
+
+    private static OrdersController CreateControllerWithBusiness(AppDbContext ctx) => new(
+        ctx,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        null!,
+        new FakeCurrentBusiness(new Business
+        {
+            Id = 1,
+            Name = "Regi Bazar",
+            Slug = "regibazar",
+            FrontendUrl = "https://tienda.test",
+        }));
+
+    private sealed class FakeCurrentBusiness(Business business)
+        : EntregasApi.Services.ICurrentBusiness
+    {
+        public Business Current => business;
+
+        public Task<Business> GetAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(business);
+    }
+
     private static OrdersController CreateController(AppDbContext ctx) => new(
         ctx,
         null!,

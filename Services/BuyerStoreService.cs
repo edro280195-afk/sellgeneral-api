@@ -19,8 +19,7 @@ public interface IBuyerStoreService
 }
 
 /// <summary>
-/// Excepción que indica que la tienda solicitada no existe o que la
-/// compradora no tiene un Client reclamado en ella.
+/// Excepción que indica que la tienda solicitada no existe.
 /// </summary>
 public class StoreNotFoundException : Exception
 {
@@ -68,8 +67,11 @@ public class BuyerStoreService : IBuyerStoreService
             throw new StoreNotFoundException("Tienda no encontrada.");
         }
 
-        // Acceso: tener un Client reclamado en esta tienda O seguirla (una
-        // seguidora puede entrar a curiosear sin haberle comprado nunca).
+        // Acceso: cualquier cuenta con sesión puede ver el perfil público de
+        // una tienda que exista (es a donde llega quien abre el enlace que la
+        // vendedora comparte en su live) y desde ahí seguirla. Ver la tienda
+        // no expone nada que un "Seguir" no abriera: POST /api/me/follow acepta
+        // a cualquier cuenta. Los puntos solo se muestran si tiene Client aquí.
         var myClient = await _db.Clients.AsNoTracking().IgnoreQueryFilters()
             .Where(c => c.AccountId == accountId && c.BusinessId == businessId)
             .Select(c => new { c.Id, c.CurrentPoints })
@@ -79,11 +81,6 @@ public class BuyerStoreService : IBuyerStoreService
             .Where(f => f.BusinessId == businessId && f.AccountId == accountId && f.UnfollowedAt == null)
             .Select(f => new { f.IsVip })
             .FirstOrDefaultAsync(cancellationToken);
-
-        if (myClient is null && myFollow is null)
-        {
-            throw new StoreNotFoundException("Esta tienda no está en tu cuenta.");
-        }
 
         // Puntos de la compradora en esta tienda + próxima reward alcanzable.
         var nextRewardAt = await _db.LoyaltyRewards.AsNoTracking().IgnoreQueryFilters()
@@ -102,10 +99,18 @@ public class BuyerStoreService : IBuyerStoreService
             .ToListAsync(cancellationToken);
 
         // Counts de actividad (para que la app muestre el numerito en cada tab).
-        var activeTandasCount = await _db.Tandas.AsNoTracking().IgnoreQueryFilters()
-            .CountAsync(t => t.BusinessId == businessId
-                              && (t.Status == "Active" || t.Status == "Draft"),
-                cancellationToken);
+        // Se cuentan en memoria las que aún no terminan por calendario: el
+        // mismo criterio que la lista "Disponibles" de BuyerTandasService,
+        // para que el numerito de la pestaña coincida con lo que se ve.
+        var openTandas = await _db.Tandas.AsNoTracking().IgnoreQueryFilters()
+            .Where(t => t.BusinessId == businessId
+                        && (t.Status == "Active" || t.Status == "Draft"))
+            .Select(t => new { t.StartDate, t.TotalWeeks })
+            .ToListAsync(cancellationToken);
+        var todayUtc = DateTime.UtcNow.Date;
+        var activeTandasCount = openTandas.Count(t =>
+            TandaWeekCalculator.CalculateCurrentWeek(t.StartDate, todayUtc)
+            <= t.TotalWeeks);
 
         var activeRafflesCount = await _db.Raffles.AsNoTracking().IgnoreQueryFilters()
             .CountAsync(r => r.BusinessId == businessId && r.Status == "Active",
