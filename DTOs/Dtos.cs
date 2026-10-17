@@ -26,6 +26,12 @@ public record RegisterRequest(
     string Password,
     bool AcceptedLegal = false,
     string? LegalVersion = null);
+public record WebPhoneRegisterRequest(
+    string Name,
+    string Phone,
+    string Password,
+    bool AcceptedLegal = false,
+    string? LegalVersion = null);
 public record AuthMembershipDto(int BusinessId, string BusinessName, string Role);
 public record PhoneLoginRequest(string Phone);
 

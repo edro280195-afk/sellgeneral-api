@@ -1502,5 +1502,91 @@ public class AuthController : ControllerBase
         return email.Trim().ToLowerInvariant();
     }
 
+    // ── Acceso web: teléfono + contraseña, sin alterar el flujo OTP móvil ──
+
+    [HttpPost("web/phone/register")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthPassword)]
+    public async Task<ActionResult<LoginResponse>> RegisterWebPhone(
+        WebPhoneRegisterRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        var name = NormalizeOptional(req.Name, 150);
+        if (name is null)
+        {
+            return BadRequest(new { message = "Escribe tu nombre." });
+        }
+
+        if (string.IsNullOrWhiteSpace(req.Password) ||
+            req.Password.Length is < 8 or > 128)
+        {
+            return BadRequest(new { message = "La contraseña debe tener entre 8 y 128 caracteres." });
+        }
+
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return BadRequest(new { message = "Escribe un teléfono mexicano de 10 dígitos con lada." });
+        }
+
+        var legalError = ValidateLegalAcceptance(req.AcceptedLegal);
+        if (legalError is not null) return legalError;
+
+        var phoneE164 = PhoneNumberNormalizer.NormalizeE164(phone);
+        if (await _db.Accounts.AnyAsync(
+                a => a.Phone == phone || (phoneE164 != null && a.Phone == phoneE164),
+                cancellationToken))
+        {
+            return Conflict(new { message = "Ya existe una cuenta con ese teléfono. Inicia sesión." });
+        }
+
+        var account = new Account
+        {
+            DisplayName = name,
+            Phone = phone,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password)
+        };
+        MarkLegalAccepted(account, req.LegalVersion);
+
+        _db.Accounts.Add(account);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(await BuildLoginResponseAsync(account, [], cancellationToken));
+    }
+
+    [HttpPost("web/phone/login")]
+    [EnableRateLimiting(SecurityRateLimitPolicies.AuthPassword)]
+    public async Task<ActionResult<LoginResponse>> LoginWebPhone(
+        PhonePasswordLoginRequest req,
+        CancellationToken cancellationToken = default)
+    {
+        var phone = _phoneVerification.NormalizePhone(req.Phone);
+        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(req.Password))
+        {
+            return Unauthorized(new { message = "Teléfono o contraseña incorrectos." });
+        }
+
+        var phoneE164 = PhoneNumberNormalizer.NormalizeE164(phone);
+        var matchingAccounts = await _db.Accounts
+            .Include(a => a.Memberships)
+                .ThenInclude(m => m.Business)
+            .Where(a => a.Phone == phone || (phoneE164 != null && a.Phone == phoneE164))
+            .Take(2)
+            .ToListAsync(cancellationToken);
+
+        if (matchingAccounts.Count > 1)
+        {
+            return Conflict(new { message = "No pudimos identificar una sola cuenta para ese teléfono." });
+        }
+
+        var account = matchingAccounts.SingleOrDefault();
+        if (account?.PasswordHash is null ||
+            !BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
+        {
+            return Unauthorized(new { message = "Teléfono o contraseña incorrectos." });
+        }
+
+        return Ok(await BuildLoginResponseAsync(account, account.Memberships, cancellationToken));
+    }
+
 
 }
