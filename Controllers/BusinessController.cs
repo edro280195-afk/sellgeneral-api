@@ -26,6 +26,7 @@ public class BusinessController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly TimeProvider _timeProvider;
     private readonly ISellerTrialPolicy _sellerTrialPolicy;
+    private readonly ILogger<BusinessController> _logger;
 
     public BusinessController(
         AppDbContext db,
@@ -34,7 +35,8 @@ public class BusinessController : ControllerBase
         IEntitlementService entitlements,
         IConfiguration configuration,
         TimeProvider timeProvider,
-        ISellerTrialPolicy sellerTrialPolicy)
+        ISellerTrialPolicy sellerTrialPolicy,
+        ILogger<BusinessController> logger)
     {
         _db = db;
         _currentAccount = currentAccount;
@@ -43,6 +45,7 @@ public class BusinessController : ControllerBase
         _configuration = configuration;
         _timeProvider = timeProvider;
         _sellerTrialPolicy = sellerTrialPolicy;
+        _logger = logger;
     }
 
     [HttpPost]
@@ -53,7 +56,11 @@ public class BusinessController : ControllerBase
     public Task<ActionResult<BusinessOnboardingResponse>> CreateBusiness(
         [FromBody] CreateBusinessRequest request,
         CancellationToken cancellationToken) =>
-        CreateBusinessAsync(request, requireVerifiedPhone: true, cancellationToken: cancellationToken);
+        CreateBusinessAsync(
+            request,
+            requireVerifiedPhone: true,
+            enforceDeviceReuse: true,
+            cancellationToken: cancellationToken);
 
     [HttpPost("web")]
     [SkipTenantResolution]
@@ -63,11 +70,16 @@ public class BusinessController : ControllerBase
     public Task<ActionResult<BusinessOnboardingResponse>> CreateWebBusiness(
         [FromBody] CreateBusinessRequest request,
         CancellationToken cancellationToken) =>
-        CreateBusinessAsync(request, requireVerifiedPhone: false, cancellationToken: cancellationToken);
+        CreateBusinessAsync(
+            request,
+            requireVerifiedPhone: false,
+            enforceDeviceReuse: false,
+            cancellationToken: cancellationToken);
 
     private async Task<ActionResult<BusinessOnboardingResponse>> CreateBusinessAsync(
         CreateBusinessRequest request,
         bool requireVerifiedPhone,
+        bool enforceDeviceReuse,
         CancellationToken cancellationToken)
     {
         if (_currentAccount.AccountId is not int accountId)
@@ -122,7 +134,15 @@ public class BusinessController : ControllerBase
             account,
             deviceId,
             cancellationToken,
-            requireVerifiedPhone: requireVerifiedPhone);
+            requireVerifiedPhone: requireVerifiedPhone,
+            enforceDeviceReuse: enforceDeviceReuse);
+        if (!trialDecision.Granted)
+        {
+            _logger.LogWarning(
+                "Seller trial was not granted for account {AccountId}; restriction reason: {RestrictionReason}",
+                accountId,
+                trialDecision.RestrictionReason);
+        }
         var slug = await GenerateUniqueSlugAsync(baseSlug, cancellationToken);
         var business = new Business
         {
@@ -189,6 +209,16 @@ public class BusinessController : ControllerBase
         return Ok(await BuildCurrentStateDtoAsync(cancellationToken));
     }
 
+    [HttpGet("web/account-status")]
+    [BypassSubscriptionLock]
+    [Authorize(Policy = AuthorizationPolicies.Admin)]
+    public async Task<ActionResult<SubscriptionAccountStateDto>> GetWebAccountStatus(
+        CancellationToken cancellationToken)
+    {
+        await RecoverWebTrialDeniedByDeviceConflictAsync(cancellationToken);
+        return Ok(await BuildCurrentStateDtoAsync(cancellationToken));
+    }
+
     [HttpPut("subscription/plan")]
     [HttpPost("subscription/plan")]
     [BypassSubscriptionLock]
@@ -252,6 +282,61 @@ public class BusinessController : ControllerBase
             snapshot.IsLocked,
             snapshot.DaysLeft,
             snapshot.PastDueGraceDays);
+    }
+
+    private async Task RecoverWebTrialDeniedByDeviceConflictAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_currentAccount.AccountId is not int accountId)
+        {
+            return;
+        }
+
+        var account = await _db.Accounts
+            .FirstOrDefaultAsync(candidate => candidate.Id == accountId, cancellationToken);
+        if (account is null ||
+            account.SellerTrialGrantedAtUtc is not null ||
+            account.SellerTrialRestrictionReason != "trial_review_required" ||
+            account.SellerTrialEvaluatedAtUtc is not DateTime evaluatedAt)
+        {
+            return;
+        }
+
+        var business = await _db.Businesses
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == _currentTenant.ActiveBusinessId,
+                cancellationToken);
+        if (business is null ||
+            business.SubscriptionStatus != SubscriptionStatus.Expired ||
+            business.TrialEndsAt is not null ||
+            business.CurrentPeriodEndsAt is not null ||
+            business.PreapprovalId is not null)
+        {
+            return;
+        }
+
+        var evaluationWindowStart = evaluatedAt.AddMinutes(-1);
+        var evaluationWindowEnd = evaluatedAt.AddMinutes(5);
+        if (business.CreatedAt < evaluationWindowStart || business.CreatedAt > evaluationWindowEnd)
+        {
+            return;
+        }
+
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        account.SellerTrialGrantedAtUtc = now;
+        account.SellerTrialDeviceHash = null;
+        account.SellerTrialRestrictionReason = null;
+        business.PlanTier = PlanTiers.Pro;
+        business.SubscriptionStatus = SubscriptionStatus.Trialing;
+        business.TrialEndsAt = now.AddDays(14);
+        business.CurrentPeriodEndsAt = null;
+        business.IsActive = true;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Recovered the web trial for account {AccountId} and business {BusinessId} after a device-based restriction",
+            accountId,
+            business.Id);
     }
 
     private async Task<string> GenerateUniqueSlugAsync(

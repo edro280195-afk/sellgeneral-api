@@ -19,13 +19,13 @@ public interface ISellerTrialPolicy
         Account account,
         string? deviceId,
         CancellationToken cancellationToken = default,
-        bool requireVerifiedPhone = true);
+        bool requireVerifiedPhone = true,
+        bool enforceDeviceReuse = true);
 }
 
 /// <summary>
-/// Concede una sola prueba por cuenta y dispositivo. Los flujos tradicionales
-/// exigen teléfono confirmado; el alta web usa el identificador persistente del
-/// navegador porque no ofrece confirmación por WhatsApp.
+/// Concede una sola prueba por cuenta. Los flujos tradicionales también pueden
+/// limitarla por dispositivo; el alta web no requiere teléfono ni device ID.
 /// </summary>
 public sealed class SellerTrialPolicy : ISellerTrialPolicy
 {
@@ -53,7 +53,8 @@ public sealed class SellerTrialPolicy : ISellerTrialPolicy
         Account account,
         string? deviceId,
         CancellationToken cancellationToken = default,
-        bool requireVerifiedPhone = true)
+        bool requireVerifiedPhone = true,
+        bool enforceDeviceReuse = true)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         account.SellerTrialEvaluatedAtUtc = now;
@@ -67,6 +68,14 @@ public sealed class SellerTrialPolicy : ISellerTrialPolicy
         if (account.SellerTrialGrantedAtUtc is not null)
         {
             return Restrict(account, "trial_already_used");
+        }
+
+        if (!enforceDeviceReuse)
+        {
+            account.SellerTrialGrantedAtUtc = now;
+            account.SellerTrialDeviceHash = null;
+            account.SellerTrialRestrictionReason = null;
+            return SellerTrialDecision.Allow();
         }
 
         var normalizedDeviceId = NormalizeDeviceId(deviceId);
