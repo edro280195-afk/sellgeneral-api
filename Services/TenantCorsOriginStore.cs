@@ -14,6 +14,7 @@ public class TenantCorsOriginStore
 {
     private static readonly string[] StaticOrigins =
     {
+        "https://app.nenisapp.com",
         "http://localhost:4200",
         "http://127.0.0.1:4200",
         "http://localhost",
