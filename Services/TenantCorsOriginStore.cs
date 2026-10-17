@@ -15,6 +15,7 @@ public class TenantCorsOriginStore
     private static readonly string[] StaticOrigins =
     {
         "http://localhost:4200",
+        "http://127.0.0.1:4200",
         "http://localhost",
         "https://localhost",
         "capacitor://localhost"
