@@ -18,13 +18,14 @@ public interface ISellerTrialPolicy
     Task<SellerTrialDecision> EvaluateAsync(
         Account account,
         string? deviceId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool requireVerifiedPhone = true);
 }
 
 /// <summary>
-/// Concede una sola prueba por identidad verificada y por instalacion. El
-/// dispositivo es una segunda senal antifraude; el telefono sigue siendo la
-/// identidad principal y debe estar confirmado por WhatsApp.
+/// Concede una sola prueba por cuenta y dispositivo. Los flujos tradicionales
+/// exigen teléfono confirmado; el alta web usa el identificador persistente del
+/// navegador porque no ofrece confirmación por WhatsApp.
 /// </summary>
 public sealed class SellerTrialPolicy : ISellerTrialPolicy
 {
@@ -51,12 +52,14 @@ public sealed class SellerTrialPolicy : ISellerTrialPolicy
     public async Task<SellerTrialDecision> EvaluateAsync(
         Account account,
         string? deviceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool requireVerifiedPhone = true)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         account.SellerTrialEvaluatedAtUtc = now;
 
-        if (string.IsNullOrWhiteSpace(account.Phone) || account.PhoneVerifiedAt is null)
+        if (requireVerifiedPhone &&
+            (string.IsNullOrWhiteSpace(account.Phone) || account.PhoneVerifiedAt is null))
         {
             return Restrict(account, "phone_not_verified");
         }

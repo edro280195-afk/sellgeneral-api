@@ -50,8 +50,24 @@ public class BusinessController : ControllerBase
     [Authorize(
         Policy = AuthorizationPolicies.AuthenticatedAccount,
         AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    public async Task<ActionResult<BusinessOnboardingResponse>> CreateBusiness(
+    public Task<ActionResult<BusinessOnboardingResponse>> CreateBusiness(
         [FromBody] CreateBusinessRequest request,
+        CancellationToken cancellationToken) =>
+        CreateBusinessAsync(request, requireVerifiedPhone: true, cancellationToken: cancellationToken);
+
+    [HttpPost("web")]
+    [SkipTenantResolution]
+    [Authorize(
+        Policy = AuthorizationPolicies.AuthenticatedAccount,
+        AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    public Task<ActionResult<BusinessOnboardingResponse>> CreateWebBusiness(
+        [FromBody] CreateBusinessRequest request,
+        CancellationToken cancellationToken) =>
+        CreateBusinessAsync(request, requireVerifiedPhone: false, cancellationToken: cancellationToken);
+
+    private async Task<ActionResult<BusinessOnboardingResponse>> CreateBusinessAsync(
+        CreateBusinessRequest request,
+        bool requireVerifiedPhone,
         CancellationToken cancellationToken)
     {
         if (_currentAccount.AccountId is not int accountId)
@@ -91,7 +107,8 @@ public class BusinessController : ControllerBase
             return Unauthorized(new { message = "La cuenta no esta autenticada." });
         }
 
-        if (string.IsNullOrWhiteSpace(account.Phone) || account.PhoneVerifiedAt is null)
+        if (requireVerifiedPhone &&
+            (string.IsNullOrWhiteSpace(account.Phone) || account.PhoneVerifiedAt is null))
         {
             return BadRequest(new
             {
@@ -104,7 +121,8 @@ public class BusinessController : ControllerBase
         var trialDecision = await _sellerTrialPolicy.EvaluateAsync(
             account,
             deviceId,
-            cancellationToken);
+            cancellationToken,
+            requireVerifiedPhone: requireVerifiedPhone);
         var slug = await GenerateUniqueSlugAsync(baseSlug, cancellationToken);
         var business = new Business
         {
