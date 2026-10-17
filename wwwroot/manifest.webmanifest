@@ -2,10 +2,13 @@
     "name": "Neni's App - La plataforma de tu tienda ✨",
     "short_name": "Neni's App",
     "description": "Neni's App - La plataforma de tu tienda ✨",
+    "id": "/",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
+    "orientation": "portrait-primary",
     "background_color": "#fff7fa",
-    "theme_color": "#f84070",
+    "theme_color": "#FF0072",
     "icons": [
         {
             "src": "pwa-icon-192.png",
