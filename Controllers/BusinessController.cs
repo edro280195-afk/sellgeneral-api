@@ -294,10 +294,7 @@ public class BusinessController : ControllerBase
 
         var account = await _db.Accounts
             .FirstOrDefaultAsync(candidate => candidate.Id == accountId, cancellationToken);
-        if (account is null ||
-            account.SellerTrialGrantedAtUtc is not null ||
-            account.SellerTrialRestrictionReason != "trial_review_required" ||
-            account.SellerTrialEvaluatedAtUtc is not DateTime evaluatedAt)
+        if (account is null || account.SellerTrialGrantedAtUtc is not null)
         {
             return;
         }
@@ -306,6 +303,24 @@ public class BusinessController : ControllerBase
             .FirstOrDefaultAsync(
                 candidate => candidate.Id == _currentTenant.ActiveBusinessId,
                 cancellationToken);
+        _logger.LogInformation(
+            "Checking web trial recovery for account {AccountId}: restriction={RestrictionReason}, evaluatedAt={EvaluatedAt}, businessId={BusinessId}, status={BusinessStatus}, trialEndsAt={TrialEndsAt}, currentPeriodEndsAt={CurrentPeriodEndsAt}, hasPreapproval={HasPreapproval}, createdAt={CreatedAt}",
+            accountId,
+            account.SellerTrialRestrictionReason,
+            account.SellerTrialEvaluatedAtUtc,
+            business?.Id,
+            business?.SubscriptionStatus,
+            business?.TrialEndsAt,
+            business?.CurrentPeriodEndsAt,
+            !string.IsNullOrWhiteSpace(business?.PreapprovalId),
+            business?.CreatedAt);
+
+        if (account.SellerTrialRestrictionReason != "trial_review_required" ||
+            account.SellerTrialEvaluatedAtUtc is not DateTime evaluatedAt)
+        {
+            return;
+        }
+
         if (business is null ||
             business.SubscriptionStatus != SubscriptionStatus.Expired ||
             business.TrialEndsAt is not null ||
