@@ -209,6 +209,13 @@ public class AppDbContext : DbContext
             .HasIndex(o => o.AccessToken)
             .IsUnique();
 
+        // El tenant público se resuelve exclusivamente a partir de este token;
+        // debe ser único entre todos los negocios, no solo dentro de cada uno.
+        modelBuilder.Entity<Tanda>()
+            .HasIndex(t => t.AccessToken)
+            .IsUnique()
+            .HasDatabaseName("IX_tandas_access_token");
+
         modelBuilder.Entity<Order>()
             .HasIndex(o => new { o.BusinessId, o.OrderNumber })
             .IsUnique()

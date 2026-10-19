@@ -1,6 +1,7 @@
 using EntregasApi.Data;
 using EntregasApi.DTOs;
 using EntregasApi.Models;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 
 namespace EntregasApi.Services;
@@ -8,11 +9,20 @@ namespace EntregasApi.Services;
 public class TandaService : ITandaService
 {
     private readonly AppDbContext _db;
+    private readonly ICurrentBusiness? _currentBusiness;
+    private readonly IConfiguration? _configuration;
 
-    public TandaService(AppDbContext db)
+    public TandaService(
+        AppDbContext db,
+        ICurrentBusiness? currentBusiness = null,
+        IConfiguration? configuration = null)
     {
         _db = db;
+        _currentBusiness = currentBusiness;
+        _configuration = configuration;
     }
+
+    private string FrontendUrl => PublicLinkUrlResolver.Resolve(_currentBusiness?.Current, _configuration);
 
     public async Task<TandaDto> CreateTandaAsync(CreateTandaDto dto)
     {
@@ -483,9 +493,15 @@ public class TandaService : ITandaService
         Status = t.Status,
         CreatedAt = t.CreatedAt,
         AccessToken = t.AccessToken,
+        PublicLink = BuildPublicLink(t.AccessToken),
         Product = t.Product != null ? MapToProductDto(t.Product) : null,
         Participants = t.Participants?.Select(MapToParticipantDto).ToList()
     };
+
+    private string? BuildPublicLink(string? accessToken) =>
+        string.IsNullOrWhiteSpace(accessToken)
+            ? null
+            : $"{FrontendUrl}/tanda-view/{Uri.EscapeDataString(accessToken)}";
 
     private TandaParticipantDto MapToParticipantDto(TandaParticipant p) => new TandaParticipantDto
     {
@@ -654,8 +670,8 @@ public class TandaService : ITandaService
         if (!string.IsNullOrWhiteSpace(tanda.AccessToken))
         {
             sb.AppendLine();
-            sb.AppendLine($"🔗 *Sigue tu tanda en vivo y descarga la App:*");
-            sb.AppendLine($"https://app.nenisapp.com/tanda-view/{tanda.AccessToken}");
+            sb.AppendLine("🔗 *Consulta tu tanda en este enlace:*");
+            sb.AppendLine(BuildPublicLink(tanda.AccessToken));
         }
 
         string messageText = sb.ToString();

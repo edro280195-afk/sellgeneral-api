@@ -3042,6 +3042,10 @@ namespace EntregasApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccessToken")
+                        .IsUnique()
+                        .HasDatabaseName("IX_tandas_access_token");
+
                     b.HasIndex("BusinessId");
 
                     b.HasIndex("ProductId");

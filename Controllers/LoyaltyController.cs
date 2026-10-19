@@ -25,7 +25,7 @@ namespace EntregasApi.Controllers
         }
 
         // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
-        private string _frontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
+        private string _frontendUrl => PublicLinkUrlResolver.Resolve(_currentBusiness.Current, _config);
 
         /// <summary>GET /api/loyalty/{clientId} - Resumen de puntos y nivel</summary>
         [HttpGet("{clientId}")]

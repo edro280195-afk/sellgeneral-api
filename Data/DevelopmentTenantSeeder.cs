@@ -26,6 +26,7 @@ public static class DevelopmentTenantSeeder
         {
             business.PlanTier = "Elite";
             business.SubscriptionStatus = SubscriptionStatus.Active;
+            business.FrontendUrl = "http://localhost:4200";
             // Marca real de Regi Bazar: rosa del canal FCM. Solo se siembra
             // en DEV si la columna esta en su default generico (asi no
             // pisamos una eleccion manual del owner en otras BD).
@@ -44,7 +45,7 @@ public static class DevelopmentTenantSeeder
             Name = "Regi Bazar",
             Slug = "regibazar",
             City = "Nuevo Laredo",
-            FrontendUrl = "https://regibazar.com",
+            FrontendUrl = "http://localhost:4200",
             BrandPrimaryColor = "#FF0072",
             DepotLat = 27.4861,
             DepotLng = -99.5069,

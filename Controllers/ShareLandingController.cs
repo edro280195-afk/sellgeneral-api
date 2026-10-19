@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EntregasApi.Controllers;
 
 /// <summary>
-/// Dominio compartido de enlaces de pedido (p. ej. https://sellgeneral.app).
+/// Dominio público de enlaces de pedido, compartido o configurado por tienda.
 /// Sirve:
 ///  - <c>GET /o/{token}</c>: el "muro de instalación" (HTML) que orilla a bajar
 ///    la app. Si la app está instalada y el App Link verificado, el SO abre la

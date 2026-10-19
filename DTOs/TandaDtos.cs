@@ -160,6 +160,7 @@ public class TandaDto
     public string Status { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public string? AccessToken { get; set; }
+    public string? PublicLink { get; set; }
     public TandaProductDto? Product { get; set; }
     public List<TandaParticipantDto>? Participants { get; set; }
 }

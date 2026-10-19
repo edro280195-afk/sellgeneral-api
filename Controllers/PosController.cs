@@ -38,7 +38,7 @@ public class PosController : ControllerBase
     }
 
     // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
-    private string FrontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
+    private string FrontendUrl => PublicLinkUrlResolver.Resolve(_currentBusiness.Current, _config);
 
     [HttpPost("session/open")]
     public async Task<IActionResult> OpenSession([FromBody] OpenSessionRequest request)

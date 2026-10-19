@@ -57,29 +57,10 @@ public class RoutesController : ControllerBase
     }
 
     /// <summary>Dominio público del negocio activo (antes el fijo App:FrontendUrl).</summary>
-    private const string NenisAppUrl = "https://app.nenisapp.com";
-
     private async Task<string> FrontendUrlAsync()
     {
-        var businessUrl = (await _currentBusiness.GetAsync()).FrontendUrl;
-        var configuredUrl = _config["App:FrontendUrl"];
-
-        foreach (var candidate in new[] { businessUrl, configuredUrl })
-        {
-            if (!string.IsNullOrWhiteSpace(candidate) && !IsLegacyRegiBazarUrl(candidate))
-            {
-                return candidate.TrimEnd('/');
-            }
-        }
-
-        return NenisAppUrl;
-    }
-
-    private static bool IsLegacyRegiBazarUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
-        return uri.Host.Equals("regibazar.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".regibazar.com", StringComparison.OrdinalIgnoreCase);
+        var business = await _currentBusiness.GetAsync();
+        return PublicLinkUrlResolver.Resolve(business, _config);
     }
 
     /// <summary>Depot/centro de ruta del negocio activo (antes el fijo Cami:RouteCenter).</summary>

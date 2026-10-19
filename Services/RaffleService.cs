@@ -831,7 +831,7 @@ public class RaffleService : IRaffleService
                 e.Order.Client.Name,
                 e.Order.Status.ToString(),
                 e.Order.Total,
-                $"{(_currentBusiness.Current.FrontendUrl ?? "https://regibazar.com").TrimEnd('/')}/pedido/{e.Order.AccessToken}",
+                $"{PublicLinkUrlResolver.Resolve(_currentBusiness.Current)}/pedido/{e.Order.AccessToken}",
                 e.Order.Items.Count,
                 e.Order.OrderType.ToString(),
                 e.Order.CreatedAt,

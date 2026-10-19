@@ -49,7 +49,7 @@ public class OrdersController : ControllerBase
     }
 
     // Dominio público del negocio activo (antes el fijo App:FrontendUrl).
-    private string FrontendUrl => (_currentBusiness.Current.FrontendUrl ?? _config["App:FrontendUrl"] ?? "https://regibazar.com").TrimEnd('/');
+    private string FrontendUrl => PublicLinkUrlResolver.Resolve(_currentBusiness.Current, _config);
 
     [HttpPost("{id}/apply-birthday-discount")]
     public async Task<ActionResult<OrderSummaryDto>> ApplyBirthdayDiscount(int id)
