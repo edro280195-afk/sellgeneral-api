@@ -170,6 +170,7 @@ public class OrdersController : ControllerBase
         [FromQuery] DateTime? dateTo = null,
         [FromQuery] int? clientId = null,
         [FromQuery] int? salesPeriodId = null,
+        [FromQuery] string orderType = "",
         [FromQuery] string sortBy = "date",
         [FromQuery] string sortDir = "desc")
     {
@@ -200,6 +201,12 @@ public class OrdersController : ControllerBase
         if (!string.IsNullOrWhiteSpace(type))
         {
             query = query.Where(o => o.Client != null && o.Client.Type == type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(orderType)
+            && Enum.TryParse<EntregasApi.Models.OrderType>(orderType, true, out var parsedOrderType))
+        {
+            query = query.Where(o => o.OrderType == parsedOrderType);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -258,6 +265,64 @@ public class OrdersController : ControllerBase
             .ToListAsync();
 
         var items = orders.Select(o => ExcelService.MapToSummary(o, o.Client, FrontendUrl)).ToList();
+
+        return Ok(new PagedResult<OrderSummaryDto>(items, total, page, pageSize));
+    }
+
+    /// <summary>
+    /// GET /api/orders/merge-candidates — Pedidos vigentes que pueden moverse a otro pedido.
+    /// Excluye pedidos con bolsas generadas y pedidos que ya fueron fusionados.
+    /// </summary>
+    [HttpGet("merge-candidates")]
+    public async Task<ActionResult<PagedResult<OrderSummaryDto>>> GetMergeCandidates(
+        [FromQuery] int targetOrderId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 8,
+        [FromQuery] string search = "")
+    {
+        if (targetOrderId <= 0) return BadRequest(new { message = "Selecciona un pedido destino válido." });
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        IQueryable<Order> query = _db.Orders
+            .Where(o => o.Id != targetOrderId)
+            .Where(o => o.Status == OrderStatus.Pending
+                || o.Status == OrderStatus.Confirmed
+                || o.Status == OrderStatus.Postponed)
+            .Where(o => !o.MergedIntoOrderId.HasValue && !o.Packages.Any())
+            .Include(o => o.Client)
+            .Include(o => o.Items)
+            .Include(o => o.Payments);
+
+        var searchTerm = search.Trim().ToLower();
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var orderIdText = searchTerm.StartsWith('#') ? searchTerm[1..] : searchTerm;
+            if (int.TryParse(orderIdText, out var orderId))
+            {
+                query = query.Where(o => o.Id == orderId
+                    || (o.Client != null && o.Client.Name.ToLower().Contains(searchTerm)));
+            }
+            else
+            {
+                query = query.Where(o =>
+                    (o.Client != null && o.Client.Name.ToLower().Contains(searchTerm))
+                    || (o.Client != null && o.Client.Phone != null && o.Client.Phone.Contains(searchTerm))
+                    || _db.OrderItems.Any(i => i.OrderId == o.Id && i.ProductName.ToLower().Contains(searchTerm)));
+            }
+        }
+
+        var total = await query.CountAsync();
+        var candidates = await query
+            .OrderByDescending(o => o.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var items = candidates
+            .Select(o => ExcelService.MapToSummary(o, o.Client, FrontendUrl))
+            .ToList();
 
         return Ok(new PagedResult<OrderSummaryDto>(items, total, page, pageSize));
     }
