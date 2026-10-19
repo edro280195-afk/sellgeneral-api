@@ -464,6 +464,7 @@ public class RoutesController : ControllerBase
             Status: route.Status.ToString(),
             CreatedAt: route.CreatedAt,
             StartedAt: route.StartedAt,
+            LiquidatedAt: route.LiquidatedAt,
             Deliveries: route.Deliveries.OrderBy(d => d.SortOrder).Select(MapDeliveryToDto).ToList(),
             Expenses: allExpenses
                 .Where(e => e.DeliveryRouteId == route.Id)
@@ -776,9 +777,13 @@ public class RoutesController : ControllerBase
     {
         var route = await _db.DeliveryRoutes.Include(r => r.Deliveries).FirstOrDefaultAsync(r => r.Id == id);
         if (route == null) return NotFound("Ruta no encontrada");
+        if (route.Status != RouteStatus.Pending && route.Status != RouteStatus.Active)
+            return Conflict(new { message = "Solo puedes agregar paradas a una ruta pendiente o en camino." });
 
         var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null) return NotFound("Orden no encontrada");
+        if (order.Status != Models.OrderStatus.Pending && order.Status != Models.OrderStatus.Confirmed && order.Status != Models.OrderStatus.Postponed)
+            return Conflict(new { message = "El pedido ya no está disponible para agregarlo a una ruta." });
 
         if (order.DeliveryRouteId != null) return BadRequest("La orden ya tiene una ruta asignada.");
 
@@ -822,6 +827,8 @@ public class RoutesController : ControllerBase
     {
         var route = await _db.DeliveryRoutes.Include(r => r.Deliveries).FirstOrDefaultAsync(r => r.Id == id);
         if (route == null) return NotFound("Ruta no encontrada");
+        if (route.Status != RouteStatus.Pending && route.Status != RouteStatus.Active)
+            return Conflict(new { message = "Solo puedes agregar paradas a una ruta pendiente o en camino." });
 
         var participant = await _db.TandaParticipants
             .Include(p => p.Client)
@@ -1258,6 +1265,7 @@ public class RoutesController : ControllerBase
             Status: route.Status.ToString(),
             CreatedAt: route.CreatedAt,
             StartedAt: route.StartedAt,
+            LiquidatedAt: route.LiquidatedAt,
             Deliveries: deliveries.Select(MapDeliveryToDto).ToList(),
             Expenses: expenses
         );
@@ -1333,46 +1341,53 @@ public class RoutesController : ControllerBase
     [HttpPost("{id}/liquidate")]
     public async Task<IActionResult> LiquidateRoute(int id)
     {
-        var route = await _db.DeliveryRoutes.FindAsync(id);
+        var route = await _db.DeliveryRoutes.FirstOrDefaultAsync(r => r.Id == id);
         if (route == null) return NotFound("Ruta no encontrada");
+        if (route.Status == RouteStatus.Canceled)
+            return Conflict(new { message = "No se puede liquidar una ruta cancelada." });
+        if (route.LiquidatedAt != null)
+            return Ok(new { Message = "La ruta ya estaba liquidada.", route.LiquidatedAt });
 
-        route.Status = RouteStatus.Completed;
-        route.CompletedAt = DateTime.UtcNow;
-
-        var linkedOrders = await _db.Orders
-            .Where(o => o.DeliveryRouteId == id && o.Status == Models.OrderStatus.InRoute)
-            .ToListAsync();
-
-        foreach (var order in linkedOrders)
-        {
-            order.Status = Models.OrderStatus.Delivered;
-            var delivery = await _db.Deliveries.FirstOrDefaultAsync(d => d.OrderId == order.Id);
-            if (delivery != null && delivery.Status == DeliveryStatus.Pending)
-            {
-                delivery.Status = DeliveryStatus.Delivered;
-                delivery.DeliveredAt = DateTime.UtcNow;
-            }
-        }
-
-        var tandaDeliveries = await _db.Deliveries
+        var deliveries = await _db.Deliveries
+            .Include(d => d.Order)
             .Include(d => d.TandaParticipant)
-            .Where(d => d.DeliveryRouteId == id && d.Kind == DeliveryKind.Tanda && d.Status == DeliveryStatus.Pending)
+            .Where(d => d.DeliveryRouteId == id)
             .ToListAsync();
+
+        if (deliveries.Count == 0)
+            return Conflict(new { message = "La ruta no tiene paradas para liquidar." });
+
+        var unresolvedCount = deliveries.Count(d =>
+            d.Status != DeliveryStatus.Delivered && d.Status != DeliveryStatus.NotDelivered);
+        if (unresolvedCount > 0)
+            return Conflict(new
+            {
+                message = $"No se puede liquidar: quedan {unresolvedCount} parada(s) sin resolver.",
+                unresolvedCount
+            });
 
         var now = DateTime.UtcNow;
-        foreach (var d in tandaDeliveries)
+        foreach (var delivery in deliveries)
         {
-            d.Status = DeliveryStatus.Delivered;
-            d.DeliveredAt = now;
-            if (d.TandaParticipant != null)
+            if (delivery.Order != null)
             {
-                d.TandaParticipant.IsDelivered = true;
-                d.TandaParticipant.DeliveryDate = now;
+                delivery.Order.Status = delivery.Status == DeliveryStatus.Delivered
+                    ? Models.OrderStatus.Delivered
+                    : Models.OrderStatus.NotDelivered;
+            }
+
+            if (delivery.Status == DeliveryStatus.Delivered && delivery.TandaParticipant != null)
+            {
+                delivery.TandaParticipant.IsDelivered = true;
+                delivery.TandaParticipant.DeliveryDate ??= delivery.DeliveredAt ?? now;
             }
         }
 
+        route.Status = RouteStatus.Completed;
+        route.CompletedAt ??= now;
+        route.LiquidatedAt = now;
         await _db.SaveChangesAsync();
 
-        return Ok(new { Message = "Ruta liquidada exitosamente." });
+        return Ok(new { Message = "Ruta liquidada exitosamente.", route.LiquidatedAt });
     }
 }

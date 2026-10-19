@@ -379,7 +379,8 @@ public record RouteDto(
     DateTime CreatedAt,
     DateTime? StartedAt,
     List<RouteDeliveryDto> Deliveries,
-    List<DriverExpenseDto>? Expenses = null
+    List<DriverExpenseDto>? Expenses = null,
+    DateTime? LiquidatedAt = null
 );
 
 public record RouteGeometryResponse(

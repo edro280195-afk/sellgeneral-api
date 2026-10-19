@@ -26,6 +26,7 @@ public class DeliveryRoute : ITenantOwned
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public DateTime? LiquidatedAt { get; set; }
 
     /// <summary>Última posición conocida del repartidor</summary>
     public double? CurrentLatitude { get; set; }

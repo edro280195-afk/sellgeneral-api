@@ -758,6 +758,9 @@ namespace EntregasApi.Migrations
                     b.Property<DateTime?>("LastLocationUpdate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("LiquidatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
