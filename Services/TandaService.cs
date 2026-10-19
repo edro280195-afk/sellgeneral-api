@@ -141,9 +141,23 @@ public class TandaService : ITandaService
     {
         // Eliminada la restricción de día de la semana para pagos (a petición de la administradora)
 
-        var participant = await _db.TandaParticipants.FindAsync(dto.ParticipantId);
+        if (dto.AmountPaid <= 0)
+            throw new Exception("El monto abonado debe ser mayor a cero.");
+
+        if (dto.PenaltyPaid < 0)
+            throw new Exception("La penalización no puede ser negativa.");
+
+        var participant = await _db.TandaParticipants
+            .Include(existing => existing.Tanda)
+            .FirstOrDefaultAsync(existing => existing.Id == dto.ParticipantId);
         if (participant == null)
             throw new Exception("Participante no encontrado.");
+
+        if (participant.Tanda == null)
+            throw new Exception("La tanda de este pago ya no existe.");
+
+        if (dto.WeekNumber < 1 || dto.WeekNumber > participant.Tanda.TotalWeeks)
+            throw new Exception($"La semana debe estar entre 1 y {participant.Tanda.TotalWeeks}.");
 
         // Sin este chequeo, un doble-tap en "Registrar pago" (plausible con
         // los cold-starts de Render de hasta 60s) crea dos TandaPayment
@@ -164,12 +178,58 @@ public class TandaService : ITandaService
             WeekNumber = dto.WeekNumber,
             AmountPaid = dto.AmountPaid,
             PenaltyPaid = dto.PenaltyPaid,
-            PaymentDate = DateTime.UtcNow,
-            IsVerified = true,
-            Notes = dto.Notes
+            PaymentDate = NormalizePaymentDate(dto.PaymentDate),
+            IsVerified = dto.IsVerified,
+            Notes = NormalizePaymentNotes(dto.Notes)
         };
 
         _db.TandaPayments.Add(payment);
+        await _db.SaveChangesAsync();
+
+        return MapToPaymentDto(payment);
+    }
+
+    public async Task<TandaPaymentDto> UpdatePaymentAsync(Guid paymentId, UpdateTandaPaymentDto dto)
+    {
+        if (dto.AmountPaid <= 0)
+            throw new Exception("El monto abonado debe ser mayor a cero.");
+
+        if (dto.PenaltyPaid < 0)
+            throw new Exception("La penalización no puede ser negativa.");
+
+        if (dto.PaymentDate == default)
+            throw new Exception("La fecha del pago no es válida.");
+
+        var payment = await _db.TandaPayments
+            .Include(existing => existing.Participant)
+                .ThenInclude(participant => participant!.Tanda)
+            .FirstOrDefaultAsync(existing => existing.Id == paymentId);
+
+        if (payment?.Participant == null)
+            throw new Exception("El registro de pago no existe.");
+
+        var tanda = payment.Participant.Tanda;
+        if (tanda == null)
+            throw new Exception("La tanda de este pago ya no existe.");
+
+        if (dto.WeekNumber < 1 || dto.WeekNumber > tanda.TotalWeeks)
+            throw new Exception($"La semana debe estar entre 1 y {tanda.TotalWeeks}.");
+
+        var duplicate = await _db.TandaPayments.AnyAsync(existing =>
+            existing.Id != paymentId &&
+            existing.ParticipantId == payment.ParticipantId &&
+            existing.WeekNumber == dto.WeekNumber);
+
+        if (duplicate)
+            throw new Exception($"Ya existe otro pago para la semana {dto.WeekNumber}.");
+
+        payment.WeekNumber = dto.WeekNumber;
+        payment.AmountPaid = dto.AmountPaid;
+        payment.PenaltyPaid = dto.PenaltyPaid;
+        payment.PaymentDate = NormalizePaymentDate(dto.PaymentDate);
+        payment.IsVerified = dto.IsVerified;
+        payment.Notes = NormalizePaymentNotes(dto.Notes);
+
         await _db.SaveChangesAsync();
 
         return MapToPaymentDto(payment);
@@ -265,7 +325,11 @@ public class TandaService : ITandaService
 
         foreach (var participant in tanda.Participants.Where(p => p.Status == "Active"))
         {
-            bool hasPaidCurrentWeek = participant.Payments.Any(p => p.WeekNumber == currentWeek);
+            var expectedAmount = participant.WeeklyAmount ?? tanda.WeeklyAmount;
+            var verifiedAmount = participant.Payments
+                .Where(payment => payment.WeekNumber == currentWeek && payment.IsVerified)
+                .Sum(payment => payment.AmountPaid);
+            bool hasPaidCurrentWeek = verifiedAmount >= expectedAmount;
             
             if (!hasPaidCurrentWeek)
             {
@@ -364,8 +428,15 @@ public class TandaService : ITandaService
                 Id = p.Id,
                 Name = AnonymizeName(p.Client?.Name ?? "Participante"),
                 AssignedTurn = p.AssignedTurn,
-                HasPaidCurrentWeek = p.Payments.Any(pay => pay.WeekNumber == currentWeek),
-                PaidWeeks = p.Payments.Select(pay => pay.WeekNumber).ToList(),
+                HasPaidCurrentWeek = p.Payments
+                    .Where(pay => pay.WeekNumber == currentWeek && pay.IsVerified)
+                    .Sum(pay => pay.AmountPaid) >= (p.WeeklyAmount ?? tanda.WeeklyAmount),
+                PaidWeeks = p.Payments
+                    .Where(pay => pay.IsVerified)
+                    .GroupBy(pay => pay.WeekNumber)
+                    .Where(week => week.Sum(pay => pay.AmountPaid) >= (p.WeeklyAmount ?? tanda.WeeklyAmount))
+                    .Select(week => week.Key)
+                    .ToList(),
                 IsWinnerThisWeek = p.AssignedTurn == currentWeek,
                 IsDelivered = p.IsDelivered,
                 Variant = p.Variant,
@@ -379,11 +450,20 @@ public class TandaService : ITandaService
         var tanda = await _db.Tandas.FindAsync(id);
         if (tanda == null) throw new Exception("Tanda no encontrada");
 
+        var requestedStatus = dto.Status?.Trim();
+        if (!string.IsNullOrWhiteSpace(requestedStatus) &&
+            requestedStatus is not ("Draft" or "Active" or "Completed" or "Cancelled"))
+        {
+            throw new Exception("El estado de la tanda no es válido.");
+        }
+
         tanda.Name = dto.Name;
         tanda.TotalWeeks = dto.TotalWeeks;
         tanda.WeeklyAmount = dto.WeeklyAmount;
         tanda.PenaltyAmount = dto.PenaltyAmount;
         tanda.StartDate = dto.StartDate;
+        if (!string.IsNullOrWhiteSpace(requestedStatus))
+            tanda.Status = requestedStatus;
 
         await _db.SaveChangesAsync();
         return MapToTandaDto(tanda);
@@ -442,6 +522,24 @@ public class TandaService : ITandaService
         IsActive = pr.IsActive,
         CreatedAt = pr.CreatedAt
     };
+
+    private static DateTime NormalizePaymentDate(DateTime? paymentDate)
+    {
+        if (!paymentDate.HasValue)
+            return DateTime.UtcNow;
+
+        return paymentDate.Value.Kind switch
+        {
+            DateTimeKind.Utc => paymentDate.Value,
+            DateTimeKind.Local => paymentDate.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(paymentDate.Value, DateTimeKind.Utc)
+        };
+    }
+
+    private static string? NormalizePaymentNotes(string? notes)
+    {
+        return string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+    }
 
     private string AnonymizeName(string fullName)
     {
@@ -516,7 +614,9 @@ public class TandaService : ITandaService
         if (targetWeek < 1) targetWeek = 1;
 
         decimal amount = participant.WeeklyAmount ?? tanda.WeeklyAmount;
-        bool hasPaid = participant.Payments.Any(p => p.WeekNumber == targetWeek);
+        bool hasPaid = participant.Payments
+            .Where(payment => payment.WeekNumber == targetWeek && payment.IsVerified)
+            .Sum(payment => payment.AmountPaid) >= amount;
         bool isWinner = participant.AssignedTurn == targetWeek;
 
         string clientName = participant.Client?.Name ?? participant.CustomerName ?? "Clienta";

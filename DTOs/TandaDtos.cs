@@ -67,6 +67,29 @@ public class RegisterPaymentDto
 
     public decimal PenaltyPaid { get; set; } = 0;
 
+    public DateTime? PaymentDate { get; set; }
+
+    public bool IsVerified { get; set; } = true;
+
+    public string? Notes { get; set; }
+}
+
+public class UpdateTandaPaymentDto
+{
+    [Required]
+    public int WeekNumber { get; set; }
+
+    [Range(0.01, double.MaxValue)]
+    public decimal AmountPaid { get; set; }
+
+    [Range(0, double.MaxValue)]
+    public decimal PenaltyPaid { get; set; }
+
+    [Required]
+    public DateTime PaymentDate { get; set; }
+
+    public bool IsVerified { get; set; }
+
     public string? Notes { get; set; }
 }
 
@@ -119,6 +142,8 @@ public class UpdateTandaDto
 
     [Required]
     public DateTime StartDate { get; set; }
+
+    public string? Status { get; set; }
 }
 
 // ── DTOs de Respuesta (Admin) ──

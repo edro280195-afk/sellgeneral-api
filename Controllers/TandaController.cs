@@ -93,6 +93,20 @@ public class TandaController : ControllerBase
         }
     }
 
+    [HttpPut("payments/{id}")]
+    public async Task<IActionResult> UpdatePayment(Guid id, [FromBody] UpdateTandaPaymentDto dto)
+    {
+        try
+        {
+            var payment = await _tandaService.UpdatePaymentAsync(id, dto);
+            return Ok(payment);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("{id}/sunday-delivery")]
     public async Task<IActionResult> GetSundayDelivery(Guid id)
     {

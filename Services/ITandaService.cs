@@ -8,6 +8,7 @@ public interface ITandaService
     Task<TandaDto> CreateTandaAsync(CreateTandaDto dto);
     Task<TandaParticipantDto> AddParticipantAsync(AddParticipantDto dto);
     Task<TandaPaymentDto> RegisterPaymentAsync(RegisterPaymentDto dto);
+    Task<TandaPaymentDto> UpdatePaymentAsync(Guid paymentId, UpdateTandaPaymentDto dto);
     Task<TandaParticipantDto?> GetSundayDeliveryAsync(Guid tandaId);
     Task UpdateParticipantTurnAsync(Guid participantId, int newTurn);
     Task UpdateParticipantVariantAsync(Guid participantId, string? variant);
